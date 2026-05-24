@@ -1,0 +1,135 @@
+================================================================================
+  AUTOMATION_DB BACKUP — RESTORE INSTRUCTIONS
+  Backup Date : 2026-05-25 01:25:38
+  Backup File : Automation_DB_20260525_012538.dump  (171.6 MB, custom format)
+  Format      : PostgreSQL custom (-Fc) — compressed, single file
+  Database    : Automation_DB
+  Host        : localhost  Port: 5432
+  Owner User  : cereveate
+  Includes    : TimescaleDB hypertables, all schemas (historian_raw,
+                historian_meta, plc_gateway, public), all data, all roles
+================================================================================
+
+PRE-REQUISITES BEFORE RESTORE
+──────────────────────────────
+1. PostgreSQL 17 must be installed
+2. TimescaleDB extension must be installed and enabled:
+     - Download from https://docs.timescale.com/self-hosted/latest/install/
+     - In postgresql.conf add:  shared_preload_libraries = 'timescaledb'
+     - Restart PostgreSQL service after adding
+3. pg_restore.exe must be available at:
+     C:\Program Files\PostgreSQL\17\bin\pg_restore.exe
+
+================================================================================
+STEP 1 — CREATE THE DATABASE (if it doesn't exist)
+================================================================================
+
+Open PowerShell as Administrator and run:
+
+    $env:PGPASSWORD = "cereveate@222"
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -c "CREATE DATABASE ""Automation_DB"" OWNER cereveate;" postgres
+
+If database already exists and you want a CLEAN restore (wipe existing):
+
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -c "DROP DATABASE IF EXISTS ""Automation_DB"";" postgres
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -c "CREATE DATABASE ""Automation_DB"" OWNER cereveate;" postgres
+
+================================================================================
+STEP 2 — ENABLE TIMESCALEDB EXTENSION IN THE NEW DATABASE
+================================================================================
+
+    $env:PGPASSWORD = "cereveate@222"
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -d Automation_DB -c "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;"
+
+================================================================================
+STEP 3 — RESTORE THE BACKUP
+================================================================================
+
+Run pg_restore with --disable-triggers (required for TimescaleDB hypertables):
+
+    $env:PGPASSWORD = "cereveate@222"
+    & "C:\Program Files\PostgreSQL\17\bin\pg_restore.exe" `
+        -h localhost `
+        -p 5432 `
+        -U cereveate `
+        -d Automation_DB `
+        --no-password `
+        --disable-triggers `
+        --no-owner `
+        --no-acl `
+        -v `
+        "C:\BACKUP\DB_20260525_012538\Automation_DB_20260525_012538.dump" 2>&1 | Tee-Object "C:\BACKUP\DB_20260525_012538\restore_log.txt"
+
+NOTE: --disable-triggers is MANDATORY for TimescaleDB — without it the
+      circular FK constraint warnings will cause restore errors.
+
+================================================================================
+STEP 4 — VERIFY RESTORE
+================================================================================
+
+    $env:PGPASSWORD = "cereveate@222"
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -d Automation_DB -c "SELECT extname, extversion FROM pg_extension WHERE extname='timescaledb';"
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -d Automation_DB -c "SELECT schemaname, tablename FROM pg_tables WHERE schemaname IN ('historian_raw','historian_meta','plc_gateway') ORDER BY schemaname, tablename;"
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -d Automation_DB -c "SELECT COUNT(*) AS timeseries_rows FROM historian_raw.historian_timeseries;"
+    & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -h localhost -p 5432 -U cereveate -d Automation_DB -c "SELECT COUNT(*) AS tag_master_rows FROM historian_meta.tag_master;"
+
+Expected results after successful restore:
+  - timescaledb extension present
+  - Tables in historian_raw, historian_meta, plc_gateway schemas visible
+  - Row counts match original (non-zero)
+
+================================================================================
+STEP 5 — RESTART APPLICATION SERVICES (after restore)
+================================================================================
+
+1. Start C# OPC Backend (port 5001):
+   Start-Process -FilePath "c:\MQTT_Implemented_OPC\Copied_MQTT\BACKUP_BEFORE_HISTORICAL_20251117_225747 - Copy_backup_20251206\bin\Release\net8.0\win-x86\OpcDaWebBrowser.exe" -WorkingDirectory "c:\MQTT_Implemented_OPC\Copied_MQTT\BACKUP_BEFORE_HISTORICAL_20251117_225747 - Copy_backup_20251206\bin\Release\net8.0\win-x86" -WindowStyle Minimized
+
+2. Start Flask HMI Backend (port 6001):
+   $ROOT = "c:\MQTT_Implemented_OPC\Copied_MQTT\BACKUP_BEFORE_HISTORICAL_20251117_225747 - Copy_backup_20251206"
+   Start-Process -FilePath "$ROOT\.venv\Scripts\python.exe" -ArgumentList "app.py" -WorkingDirectory "$ROOT\WEB_HMI_MFA\HMI" -WindowStyle Minimized
+
+3. Start React Vite HMI (port 8090):
+   $ROOT = "c:\MQTT_Implemented_OPC\Copied_MQTT\BACKUP_BEFORE_HISTORICAL_20251117_225747 - Copy_backup_20251206"
+   Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory "$ROOT\WEB_HMI_MFA\HMI\apex-hmi" -WindowStyle Minimized
+
+4. Open browser: http://localhost:8090
+   Login: Mustafa / Admin@123
+
+================================================================================
+BACKUP FOLDER CONTENTS
+================================================================================
+
+  Automation_DB_20260525_012538.dump  — Main backup file (171.6 MB)
+  RESTORE_INSTRUCTIONS.txt            — This file
+
+================================================================================
+WHAT IS INCLUDED IN THIS BACKUP
+================================================================================
+
+Schemas:
+  - historian_raw    : historian_timeseries (TimescaleDB hypertable), historian_events,
+                       alarm_audit_trail, plc_timeseries
+  - historian_meta   : tag_master, shifts, plants_areas, user roles/sessions,
+                       alarm_definitions, alarm_tags
+  - plc_gateway      : plc_timeseries (TimescaleDB hypertable)
+  - public           : TimescaleDB internal tables
+
+All application data:
+  - All OPC/PLC tag history
+  - All alarm history and audit trail
+  - All user accounts, roles, sessions
+  - All tag mappings and configurations
+  - All shift definitions
+
+================================================================================
+SUPPORT NOTES
+================================================================================
+
+- Warnings about "circular foreign-key constraints on hypertable/chunk/continuous_agg"
+  during pg_dump are NORMAL for TimescaleDB — the backup is still valid.
+- Always use --disable-triggers when restoring to a TimescaleDB database.
+- If restore shows errors about timescaledb extension, ensure Step 2 was done first.
+- Connection string for application: postgresql://cereveate:cereveate@222@localhost:5432/Automation_DB
+
+================================================================================
