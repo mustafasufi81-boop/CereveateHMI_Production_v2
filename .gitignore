@@ -54,3 +54,5 @@ mqtt_subscriber_service/tests/OPS_HMI_WEB/
 # Backup folders (not source code)
 **/Backup_Shakil/
 Backup_Shakil/
+
+DB_Backups/
