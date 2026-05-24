@@ -1,7 +1,0 @@
-{
-  "RandomForest": 0.2589,
-  "Prophet": 0.0003,
-  "Ensemble": 0.0014,
-  "XGBoost": 0.2471,
-  "LightGBM": 0.2323
-}
