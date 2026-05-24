@@ -1,0 +1,138 @@
+@page
+@model TestConnectionModel
+@{
+    ViewData["Title"] = "OPC Connection Test - CLSID";
+}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>@ViewData["Title"]</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #34495e;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .btn-clsid {
+            background: #27ae60;
+        }
+        .btn-clsid:hover {
+            background: #229954;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            margin-bottom: 20px;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 OPC Connection Test</h1>
+        
+        <div class="info">
+            <strong>⚠️ Windows XP Compatibility Mode</strong><br/>
+            Use CLSID instead of ProgID to connect to Windows XP OPC servers.<br/>
+            This bypasses remote registry and uses direct DCOM activation.
+        </div>
+
+        <form method="post">
+            <div class="form-group">
+                <label>OPC Server Host (IP Address):</label>
+                <input type="text" name="host" value="@Model.Host" placeholder="172.16.160.16" required />
+            </div>
+
+            <div class="form-group">
+                <label>ProgID (Old Method - may fail on XP):</label>
+                <input type="text" name="progId" value="@Model.ProgId" placeholder="MCS.OPCServer.1" />
+            </div>
+
+            <div class="form-group">
+                <label>CLSID (Recommended for XP - get from server registry):</label>
+                <input type="text" name="clsid" value="@Model.Clsid" placeholder="{12345678-ABCD-1234-EFAB-987654321000}" />
+            </div>
+
+            <button type="submit" name="action" value="progid">Test ProgID Connection</button>
+            <button type="submit" name="action" value="clsid" class="btn-clsid">Test CLSID Connection</button>
+        </form>
+
+        @if (!string.IsNullOrEmpty(Model.ResultMessage))
+        {
+            <div class="result @(Model.IsSuccess ? "success" : "error")">
+                <strong>@(Model.IsSuccess ? "✅ Success" : "❌ Failed")</strong><br/>
+                <pre>@Model.ResultMessage</pre>
+            </div>
+        }
+
+        <div style="margin-top: 30px; padding: 15px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+            <strong>📝 How to get CLSID from Windows XP server:</strong><br/>
+            <pre>reg query "HKCR\MCS.OPCServer.1\CLSID"</pre>
+            Copy the GUID value and paste above.
+        </div>
+    </div>
+</body>
+</html>

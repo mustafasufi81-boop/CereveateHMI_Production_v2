@@ -1,0 +1,145 @@
+{
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "Cereveate",
+    "user": "cereveate",
+    "password": "cereveate@222"
+  },
+  "parquet_source": {
+    "data_directory": "D:\\OpcLogs\\Data",
+    "file_pattern": "*.parquet",
+    "check_interval_seconds": 10,
+    "stability_wait_seconds": 5
+  },
+  "tag_mappings": [
+    {
+      "parquet_column": "SHAFT_VIB._IP_REAR-X",
+      "tag_name": "SHAFT_VIB._IP_REAR-X",
+      "plant": "t",
+      "asset": "tur",
+      "subsystem": "ip",
+      "unit": "mm",
+      "sampling_frequency_seconds": 1,
+      "enabled": true
+    },
+    {
+      "parquet_column": "BEARING_VIB_HP_FRONT-Y",
+      "tag_name": "BEARING_VIB_HP_FRONT-Y",
+      "plant": "Power Plant",
+      "asset": "Turbine",
+      "subsystem": "HP",
+      "unit": "mm/sec",
+      "sampling_frequency_seconds": 1,
+      "enabled": true
+    },
+    {
+      "parquet_column": "Saw-toothed Waves.Int1",
+      "tag_name": "Saw-toothed Waves.Int1",
+      "plant": "NewPlant",
+      "asset": "Saw",
+      "subsystem": "SAw",
+      "unit": "mm/sec",
+      "sampling_frequency_seconds": 1,
+      "enabled": true
+    },
+    {
+      "parquet_column": "TURBINE_LOADMW",
+      "tag_name": "TURBINE_LOADMW",
+      "plant": "Plant1",
+      "asset": "Turb",
+      "subsystem": "Load",
+      "unit": "KW",
+      "sampling_frequency_seconds": 5,
+      "enabled": true
+    },
+    {
+      "parquet_column": "@ClientCount",
+      "tag_name": "@ClientCount",
+      "plant": "Plant",
+      "asset": "test Plant",
+      "subsystem": "Tir",
+      "unit": "mm",
+      "sampling_frequency_seconds": 1,
+      "enabled": true
+    },
+    {
+      "parquet_column": "@Clients",
+      "tag_name": "@Clients",
+      "plant": "plant",
+      "asset": "asset",
+      "subsystem": "ASSET",
+      "unit": "mm",
+      "sampling_frequency_seconds": 1,
+      "enabled": true
+    },
+    {
+      "parquet_column": "Stress.Tag.08529",
+      "tag_name": "Stress.Tag.08529",
+      "plant": "plant1",
+      "asset": "Turbine",
+      "subsystem": "Pump",
+      "unit": "Unit1",
+      "sampling_frequency_seconds": 1,
+      "enabled": true
+    }
+  ],
+  "sampling_frequencies": {
+    "available_options": [
+      {
+        "value": 1,
+        "label": "1 second"
+      },
+      {
+        "value": 2,
+        "label": "2 seconds"
+      },
+      {
+        "value": 5,
+        "label": "5 seconds"
+      },
+      {
+        "value": 10,
+        "label": "10 seconds"
+      },
+      {
+        "value": 30,
+        "label": "30 seconds"
+      },
+      {
+        "value": 60,
+        "label": "1 minute"
+      },
+      {
+        "value": 300,
+        "label": "5 minutes"
+      },
+      {
+        "value": 600,
+        "label": "10 minutes"
+      }
+    ]
+  },
+  "auto_discovery": {
+    "enabled": false,
+    "default_plant": "UnknownPlant",
+    "default_asset": "UnknownAsset",
+    "default_subsystem": "General",
+    "default_unit": "",
+    "default_frequency_seconds": 5
+  },
+  "import_settings": {
+    "batch_size": 10000,
+    "max_retries": 3,
+    "retry_delay_seconds": 60,
+    "enable_compression": true
+  },
+  "web_ui": {
+    "port": 6001,
+    "host": "0.0.0.0",
+    "title": "Cereveate Database Trends",
+    "refresh_interval_seconds": 5,
+    "default_chart_points": 1000,
+    "max_chart_points": 50000
+  }
+}

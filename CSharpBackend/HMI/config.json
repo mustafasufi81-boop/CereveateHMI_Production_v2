@@ -1,0 +1,60 @@
+{
+  "csharp_backend": {
+    "host": "localhost",
+    "port": 5001,
+    "signalr_hub": "/opcHub"
+  },
+  "hmi_server": {
+    "host": "0.0.0.0",
+    "port": 1202,
+    "debug": false
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "Cereveate",
+    "user": "cereveate",
+    "password": "cereveate@222"
+  },
+  "performance": {
+    "max_points_live": 1000,
+    "max_points_historical": 10000,
+    "update_interval_ms": 1000,
+    "websocket_buffer": 50
+  },
+  "sampling": {
+    "available_intervals": [5, 10, 20, 30, 60, 300, 600, 1800, 3600],
+    "interval_labels": {
+      "5": "5 sec (High Detail)",
+      "10": "10 sec (Detailed)",
+      "20": "20 sec (Normal)",
+      "30": "30 sec (Balanced)",
+      "60": "1 min (Standard)",
+      "300": "5 min (Compact)",
+      "600": "10 min (Overview)",
+      "1800": "30 min (Summary)",
+      "3600": "1 hour (Long Range)"
+    },
+    "default_by_hours": {
+      "1": 5,
+      "6": 5,
+      "24": 5,
+      "48": 5,
+      "72": 10,
+      "96": 10,
+      "120": 20,
+      "144": 30,
+      "168": 30,
+      "336": 60,
+      "504": 300,
+      "672": 300,
+      "720": 600,
+      "1440": 600,
+      "2160": 1800,
+      "4320": 1800,
+      "8760": 3600
+    },
+    "min_interval_seconds": 5,
+    "max_interval_seconds": 3600
+  }
+}

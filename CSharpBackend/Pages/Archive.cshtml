@@ -1,0 +1,1353 @@
+@page
+@{
+    ViewData["Title"] = "Archive Management & System Health";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Archive Management &amp; System Health</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+</head>
+<body>
+
+<div class="archive-shell">
+    <div class="archive-hero">
+        <div>
+            <p class="eyebrow">Data Control Studio</p>
+            <h1><i class="bi bi-archive"></i> Archive Management & System Health</h1>
+            <p class="lede">Browse, convert, and compress OPC parquet archives with live health telemetry.</p>
+        </div>
+        <div class="hero-actions">
+            <span class="pill">Realtime</span>
+            <span class="pill soft">10k+ tags ready</span>
+        </div>
+    </div>
+
+    <div class="archive-body">
+        <!-- Bootstrap Tabs Navigation -->
+        <ul class="nav nav-tabs modern-tabs" id="archiveTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="archives-tab" data-bs-toggle="tab" data-bs-target="#archives" type="button" role="tab" aria-controls="archives" aria-selected="true">
+                    <i class="bi bi-archive"></i> Archives
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="health-tab" data-bs-toggle="tab" data-bs-target="#health" type="button" role="tab" aria-controls="health" aria-selected="false">
+                    <i class="bi bi-heart-pulse"></i> System Health
+                    <span id="healthTabBadge" class="badge bg-success ms-1" style="display:none;">●</span>
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab" aria-controls="logs" aria-selected="false">
+                    <i class="bi bi-file-text"></i> Logs
+                </button>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content mt-3" id="archiveTabsContent">
+        
+        <!-- ARCHIVES TAB (Existing Content) -->
+        <div class="tab-pane fade show active" id="archives" role="tabpanel" aria-labelledby="archives-tab">
+
+    <!-- Filter + Statistics Cards -->
+    <div class="card mb-3 shadow-sm" style="border-left: 4px solid #1d6df7;">
+        <div class="card-body py-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="archiveFilterStart" class="form-label fw-bold">Start Date</label>
+                    <input type="date" class="form-control" id="archiveFilterStart" aria-label="Archive start date">
+                </div>
+                <div class="col-md-4">
+                    <label for="archiveFilterEnd" class="form-label fw-bold">End Date</label>
+                    <input type="date" class="form-control" id="archiveFilterEnd" aria-label="Archive end date">
+                </div>
+                <div class="col-md-4 d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary flex-fill" id="applyArchiveFilter"><i class="bi bi-funnel"></i> Apply Filter</button>
+                    <button class="btn btn-outline-secondary flex-fill" id="resetArchiveFilter"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
+                    <div class="small text-muted w-100" id="archiveFilterHint"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row g-3 mb-4 stat-grid">
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-card">
+                <div class="stat-label">Total Files</div>
+                <div class="stat-value" id="totalFiles">0</div>
+                <div class="stat-sub">Synced just now</div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-card">
+                <div class="stat-label">Total Size</div>
+                <div class="stat-value" id="totalSize">0</div>
+                <div class="stat-sub">Across all parquet</div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-card">
+                <div class="stat-label">Avg File Size</div>
+                <div class="stat-value" id="avgSize">0</div>
+                <div class="stat-sub">Mean over current set</div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="stat-card">
+                <div class="stat-label">Log Files</div>
+                <div class="stat-value" id="logCount">0</div>
+                <div class="stat-sub">Latest run outputs</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Archive Files Table -->
+    <div class="card mb-4 shadow-sm archive-card">
+        <div class="card-header split">
+            <div>
+                <h4 class="mb-0"><i class="bi bi-archive-fill"></i> Archive Files</h4>
+                <p class="micro">Browse, preview, convert, or compress</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <div class="ghost-pill" id="archiveDirectoryHint"></div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#archiveListCollapse" aria-expanded="true" aria-controls="archiveListCollapse">
+                    <i class="bi bi-chevron-down"></i>
+                </button>
+            </div>
+        </div>
+        <div id="archiveListCollapse" class="collapse show">
+            <div class="card-body p-0">
+                <div class="table-responsive archive-table-wrap">
+                    <table class="table table-hover mb-0" id="archiveTable">
+                        <thead>
+                            <tr>
+                                <th><i class="bi bi-file-earmark"></i> File Name</th>
+                                <th><i class="bi bi-hdd"></i> Size</th>
+                                <th><i class="bi bi-calendar-plus"></i> Created</th>
+                                <th><i class="bi bi-calendar-check"></i> Modified</th>
+                                <th class="text-center"><i class="bi bi-gear"></i> Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="archiveTableBody">
+                            <tr>
+                                <td colspan="5" class="text-center p-5">
+                                    <div class="spinner-border text-primary" role="status"></div>
+                                    <p class="mt-3 text-muted">Loading archive files...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conversion Panel -->
+    <div class="card mb-4 shadow-sm" id="conversionPanel" style="display:none; border-left: 4px solid #28a745;">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="mb-0"><i class="bi bi-arrow-repeat"></i> Convert Parquet to CSV</h4>
+                <p class="micro text-white-50 mb-0">One-click export with smart splitting for large files</p>
+            </div>
+            <span class="pill soft">Auto ZIP over 100k rows</span>
+        </div>
+        <div class="card-body" style="padding: 24px;">
+            <div class="row mb-4">
+                <div class="col-md-12">
+                    <div class="alert alert-light border" style="border-left: 4px solid #0d6efd !important;">
+                        <h5 class="mb-2"><i class="bi bi-file-earmark-text"></i> Selected: <span id="selectedFileName" class="text-primary"></span></h5>
+                        <div id="fileInfoDisplay"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-success" style="background: #d1e7dd; border: none; border-left: 4px solid #28a745;">
+                <i class="bi bi-lightning-fill"></i> <strong>Smart Conversion:</strong> Files over 100,000 rows split into multiple CSVs and packaged as a ZIP in <code>D:\OpcLogs\Backup</code>.
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-12">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold mb-0"><i class="bi bi-list-check"></i> Select Columns (leave unchecked for all columns)</label>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#columnCheckboxesWrap" aria-expanded="true" aria-controls="columnCheckboxesWrap">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                    </div>
+                    <div id="columnCheckboxesWrap" class="collapse show">
+                        <div id="columnCheckboxes" class="border rounded p-3" style="max-height: 200px; overflow-y: auto; background: #f8f9fa;">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-12">
+                    <button class="btn btn-success btn-lg w-100" onclick="convertToCsv()" style="padding: 14px; font-size: 17px; font-weight: 600;">
+                        <i class="bi bi-download"></i> Convert & Download Now
+                    </button>
+                </div>
+            </div>
+
+            <div id="conversionStatus" class="mt-4"></div>
+        </div>
+    </div>
+
+    <!-- ZIP Compression Panel -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning">
+            <h5><i class="bi bi-file-zip"></i> Compress Archives to ZIP</h5>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-info">
+                <strong>Rules:</strong>
+                <ul class="mb-0">
+                    <li>Files must be at least <strong>1 day old</strong> (cannot compress recent files)</li>
+                    <li>Maximum date range: <strong>1 month (31 days)</strong></li>
+                    <li>Only unused archive files will be compressed</li>
+                </ul>
+            </div>
+            <div class="row">
+                <div class="col-md-4">
+                    <label for="compressStartDate">Start Date</label>
+                    <input type="date" class="form-control" id="compressStartDate" aria-label="Start date for compression" required>
+                </div>
+                <div class="col-md-4">
+                    <label for="compressEndDate">End Date (Max 1 day ago)</label>
+                    <input type="date" class="form-control" id="compressEndDate" aria-label="End date for compression" required>
+                </div>
+                <div class="col-md-4">
+                    <label>&nbsp;</label>
+                    <button class="btn btn-warning btn-block w-100" onclick="compressArchives()">
+                        <i class="bi bi-file-zip"></i> Compress to ZIP
+                    </button>
+                </div>
+            </div>
+            <div id="compressStatus" class="mt-3"></div>
+        </div>
+    </div>
+
+    <!-- Compressed Archives List -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5><i class="bi bi-folder-zip"></i> Compressed ZIP Archives</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Size (MB)</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="compressedTableBody">
+                        <tr>
+                            <td colspan="4" class="text-center">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+        </div> <!-- End Archives Tab -->
+
+        <!-- SYSTEM HEALTH TAB (NEW) -->
+        <div class="tab-pane fade" id="health" role="tabpanel" aria-labelledby="health-tab">
+            
+            <!-- Overall System Status -->
+            <div class="row mb-3">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-body p-3">
+                            <div class="row align-items-center text-center">
+                                <div class="col-md-2">
+                                    <div id="overallStatusIcon" style="font-size: 3rem;">⚪</div>
+                                    <h5 id="overallStatusText" class="mb-0 mt-1">Initializing...</h5>
+                                </div>
+                                <div class="col-md-2">
+                                    <small class="text-muted d-block">Health Score</small>
+                                    <h3 id="overallHealthScore" class="mb-0">--</h3>
+                                    <div class="progress mt-2" style="height: 8px;">
+                                        <div id="overallHealthBar" class="progress-bar" role="progressbar" aria-label="Overall health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <small class="text-muted d-block">Active Alerts</small>
+                                    <h3 id="activeAlerts" class="text-danger mb-0">0</h3>
+                                </div>
+                                <div class="col-md-2">
+                                    <small class="text-muted d-block">Warnings</small>
+                                    <h3 id="warningCount" class="text-warning mb-0">0</h3>
+                                </div>
+                                <div class="col-md-2">
+                                    <small class="text-muted d-block">Errors</small>
+                                    <h3 id="errorCount" class="text-danger mb-0">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Subsystem Health Cards -->
+            <div class="row g-3">
+                <!-- OPC DA Health -->
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header bg-primary text-white py-2">
+                            <h6 class="mb-0"><i class="bi bi-hdd-network"></i> OPC DA Acquisition</h6>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Status:</strong> <span id="opcStatus" class="badge bg-secondary">Unknown</span></div>
+                                    <div class="mb-2"><strong>Server:</strong> <span id="opcServer">--</span></div>
+                                    <div class="mb-2"><strong>Tags Connected:</strong> <span id="opcTagsConnected">0</span></div>
+                                    <div class="mb-2"><strong>Tags Active:</strong> <span id="opcTagsActive">0</span></div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Update Rate:</strong> <span id="opcUpdateRate">-- ms</span></div>
+                                    <div class="mb-2"><strong>Last Update:</strong> <span id="opcLastUpdate">--</span></div>
+                                    <div class="mb-2"><strong>Errors:</strong> <span id="opcErrors" class="text-danger">0</span></div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <h6>Health Score: <span id="opcHealthScore">--</span></h6>
+                                <div class="progress" style="height: 20px;">
+                                    <div id="opcHealthBar" class="progress-bar" role="progressbar" aria-label="OPC health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Database Writer Health -->
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header bg-success text-white py-2">
+                            <h6 class="mb-0"><i class="bi bi-database"></i> Database Writer</h6>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Status:</strong> <span id="dbStatus" class="badge bg-secondary">Unknown</span></div>
+                                    <div class="mb-2"><strong>Total Records:</strong> <span id="dbTotalRecords">0</span></div>
+                                    <div class="mb-2"><strong>Last Batch:</strong> <span id="dbLastBatch">0</span></div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Write Rate:</strong> <span id="dbWriteRate">0/s</span></div>
+                                    <div class="mb-2"><strong>Queue Size:</strong> <span id="dbQueueSize">0</span></div>
+                                    <div class="mb-2"><strong>Errors:</strong> <span id="dbErrors" class="text-danger">0</span></div>
+                                </div>
+                            </div>
+                            <div class="row align-items-center mt-2">
+                                <div class="col-9">
+                                    <small class="text-muted">DB Tag Coverage (last <span id="dbWindowSec">--</span>s)</small>
+                                    <div class="d-flex gap-3">
+                                        <span>Mapped: <strong id="dbMappedTags">--</strong></span>
+                                        <span>Observed: <strong id="dbObservedTags">--</strong></span>
+                                        <span>Missing: <strong id="dbMissingTags" class="text-warning">--</strong></span>
+                                    </div>
+                                </div>
+                                <div class="col-3 text-end">
+                                    <span id="dbCoverageBadge" class="badge bg-secondary" style="display:inline-block;">--</span>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <h6>Health Score: <span id="dbHealthScore">--</span></h6>
+                                <div class="progress" style="height: 20px;">
+                                    <div id="dbHealthBar" class="progress-bar" role="progressbar" aria-label="Database writer health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Parquet Tag Coverage -->
+            <div class="row g-3 mt-2">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center py-2">
+                            <h6 class="mb-0"><i class="bi bi-kanban"></i> Parquet Tag Coverage</h6>
+                            <span id="coverageAlertBadge" class="badge bg-success" style="display:none;">OK</span>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row text-center">
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Mapped (config)</h6>
+                                    <h3 id="coverageMapped">--</h3>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Observed (latest parquet)</h6>
+                                    <h3 id="coverageObserved">--</h3>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Missing vs mapped</h6>
+                                    <h3 id="coverageMissing" class="text-warning">--</h3>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Source file</h6>
+                                    <div id="coverageSource" class="small text-muted">--</div>
+                                </div>
+                            </div>
+                            <div class="row text-center">
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Good</h6>
+                                    <h4 id="coverageGood" class="text-success">--</h4>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Bad</h6>
+                                    <h4 id="coverageBad" class="text-danger">--</h4>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Uncertain/Other</h6>
+                                    <h4 id="coverageUncertain" class="text-secondary">--</h4>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <h6 class="text-muted">Bad rate</h6>
+                                    <h4 id="coverageBadRate" class="text-secondary">--</h4>
+                                </div>
+                            </div>
+                            <div class="text-end text-muted small">
+                                Rows scanned: <span id="coverageRowCount">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3 mt-2">
+                <!-- Spool Manager Health -->
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header bg-warning text-dark py-2">
+                            <h6 class="mb-0"><i class="bi bi-inbox"></i> Spool Manager</h6>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Status:</strong> <span id="spoolStatus" class="badge bg-secondary">Unknown</span></div>
+                                    <div class="mb-2"><strong>Files in Spool:</strong> <span id="spoolFiles">0</span></div>
+                                    <div class="mb-2"><strong>Spool Size:</strong> <span id="spoolSize">0 MB</span></div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Records Replayed:</strong> <span id="spoolReplayed">0</span></div>
+                                    <div class="mb-2"><strong>Last Replay:</strong> <span id="spoolLastReplay">--</span></div>
+                                    <div class="mb-2"><strong>Errors:</strong> <span id="spoolErrors" class="text-danger">0</span></div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <h6>Health Score: <span id="spoolHealthScore">--</span></h6>
+                                <div class="progress" style="height: 20px;">
+                                    <div id="spoolHealthBar" class="progress-bar" role="progressbar" aria-label="Spool health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Archiver Health -->
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header bg-info text-white py-2">
+                            <h6 class="mb-0"><i class="bi bi-archive"></i> Parquet Archiver</h6>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Status:</strong> <span id="archiverStatus" class="badge bg-secondary">Unknown</span></div>
+                                    <div class="mb-2"><strong>Unarchived Files:</strong> <span id="archiverUnarchived">0</span></div>
+                                    <div class="mb-2"><strong>Archive Files:</strong> <span id="archiverArchived">0</span></div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="mb-2"><strong>Current Archive:</strong> <span id="archiverCurrent">-- MB</span></div>
+                                    <div class="mb-2"><strong>Last Run:</strong> <span id="archiverLastRun">--</span></div>
+                                    <div class="mb-2"><strong>Errors:</strong> <span id="archiverErrors" class="text-danger">0</span></div>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <h6>Health Score: <span id="archiverHealthScore">--</span></h6>
+                                <div class="progress" style="height: 20px;">
+                                    <div id="archiverHealthBar" class="progress-bar" role="progressbar" aria-label="Archiver health" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Resources -->
+            <div class="row mt-2">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header bg-dark text-white py-2">
+                            <h6 class="mb-0"><i class="bi bi-cpu"></i> System Resources</h6>
+                        </div>
+                        <div class="card-body p-3">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <h6>CPU Usage</h6>
+                                    <h3 id="resourceCpu">0%</h3>
+                                    <div class="progress" style="height: 25px;">
+                                        <div id="resourceCpuBar" class="progress-bar" role="progressbar" aria-label="CPU usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <h6>Memory Usage</h6>
+                                    <h3 id="resourceMemory">0 MB (0%)</h3>
+                                    <div class="progress" style="height: 25px;">
+                                        <div id="resourceMemoryBar" class="progress-bar" role="progressbar" aria-label="Memory usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <h6>Disk Free</h6>
+                                    <h3 id="resourceDisk">0 MB (0%)</h3>
+                                    <div class="progress" style="height: 25px;">
+                                        <div id="resourceDiskBar" class="progress-bar" role="progressbar" aria-label="Disk free" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <h6>Thread Count</h6>
+                                    <h3 id="resourceThreads">0</h3>
+                                    <div class="mt-2">
+                                        <strong>Health Score:</strong> <span id="resourceHealthScore">--</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- End System Health Tab -->
+
+        <!-- LOGS TAB -->
+        <div class="tab-pane fade" id="logs" role="tabpanel" aria-labelledby="logs-tab">
+            
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="bi bi-file-text"></i> Archive & System Logs</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <select class="form-select" id="logFileSelectLogs" onchange="loadLogContentLogs()">
+                                <option value="">Select a log file...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12">
+                            <pre id="logContentLogs" class="border p-3 bg-light" style="max-height: 600px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px;">
+No log selected
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- End Logs Tab -->
+
+    </div> <!-- End Tab Content -->
+
+</div></div>
+
+<style>
+    :root {
+        --indigo-800: #1f3163;
+        --indigo-600: #2f4fa3;
+        --blue-500: #1d6df7;
+        --teal-500: #0bb899;
+        --slate-700: #4c5566;
+        --slate-500: #6c757d;
+        --bg-soft: #f4f6fb;
+    }
+
+    body { background: var(--bg-soft); }
+    .archive-shell { padding: 12px 10px 28px; }
+    .archive-body { background: #fff; border-radius: 14px; padding: 18px; margin-top: 14px; box-shadow: 0 18px 40px rgba(31,49,99,0.06); }
+
+    .archive-hero { display: flex; justify-content: space-between; align-items: center; padding: 28px; background: linear-gradient(120deg, #1f3c88 0%, #1d6df7 45%, #0bb899 100%); color: #fff; border-radius: 16px; box-shadow: 0 20px 40px rgba(13,110,253,0.20); }
+    .archive-hero h1 { font-weight: 800; margin: 4px 0 8px; letter-spacing: -0.5px; }
+    .archive-hero .eyebrow { letter-spacing: .08em; text-transform: uppercase; font-size: 12px; opacity: .85; margin: 0; }
+    .archive-hero .lede { margin: 0; opacity: .9; font-size: 15px; }
+    .hero-actions { display: flex; gap: 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; background: rgba(255,255,255,0.18); color: #fff; font-weight: 700; letter-spacing: .02em; }
+    .pill.soft { background: rgba(255,255,255,0.12); color: #e9f7ff; }
+
+    .modern-tabs { list-style: none; padding-left: 0; display: flex; gap: 8px; border: none; margin-bottom: 6px; }
+    .modern-tabs .nav-item { margin: 0; }
+    .modern-tabs .nav-link { border: 1px solid transparent; font-weight: 700; color: var(--slate-700); padding: 12px 18px; border-radius: 10px; background: #eef2fb; box-shadow: inset 0 1px 0 rgba(255,255,255,0.8); }
+    .modern-tabs .nav-link.active { color: #fff; background: linear-gradient(135deg, var(--indigo-600), var(--blue-500)); border-color: transparent; box-shadow: 0 10px 22px rgba(47,79,163,0.28); }
+    .archive-body .tab-content { margin-top: 10px; }
+    .archive-body .tab-pane { padding-top: 4px; }
+    .archive-body .card.mb-4 { margin-bottom: 18px !important; }
+    .archive-body .card:last-child { margin-bottom: 0; }
+    .nav-tabs .nav-link { transition: transform 0.12s ease, box-shadow 0.12s ease; }
+    .nav-tabs .nav-link:focus-visible { outline: 2px solid var(--blue-500); outline-offset: 2px; }
+    .nav-tabs .nav-link:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(29,109,247,0.15); }
+
+    .stat-grid .stat-card { background: linear-gradient(135deg, #fff, #f9fbff); border-radius: 14px; padding: 18px; box-shadow: 0 10px 28px rgba(31,49,99,0.08); border: 1px solid #e5e9f4; height: 100%; }
+    .stat-card .stat-label { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--slate-500); margin-bottom: 6px; }
+    .stat-card .stat-value { font-weight: 800; font-size: 28px; color: var(--indigo-800); line-height: 1; }
+    .stat-card .stat-sub { font-size: 12px; color: var(--slate-500); margin-top: 6px; }
+    .micro { font-size: 12px; color: #6c757d; }
+
+    .card { box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid #eef1f5; border-radius: 12px; }
+    .card-header { font-weight: 700; background: #f7f9fb; border-bottom: 1px solid #eef1f5; }
+    .card-header.split { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .ghost-pill { background: #f1f4f8; border-radius: 999px; padding: 6px 12px; color: #6c757d; font-size: 12px; }
+
+    .archive-card .card-header { background: linear-gradient(135deg, #f5f7fb, #eef3ff); }
+    .archive-table-wrap { padding: 6px; }
+    .archive-table-wrap table { font-size: 14px; }
+    .archive-table-wrap table thead { background: #f0f4ff; text-transform: uppercase; letter-spacing: .04em; font-size: 12px; }
+    .archive-table-wrap table th, .archive-table-wrap table td { padding: 14px 16px; vertical-align: middle; }
+    .archive-table-wrap table tbody tr:hover { background: #f8fbff; }
+
+    #logContent, #logContentLogs { font-family: 'Courier New', monospace; font-size: 12px; }
+    .column-checkbox { margin-right: 15px; display: inline-block; }
+
+    @@media (max-width: 768px) {
+        .archive-hero { flex-direction: column; align-items: flex-start; gap: 14px; }
+        .hero-actions { width: 100%; }
+        .modern-tabs { flex-wrap: wrap; }
+    }
+</style>
+
+<script>
+    let currentArchiveFile = '';
+    let currentFileInfo = null;
+    let healthRefreshInterval = null;
+    let coverageRefreshInterval = null;
+    let currentActiveTab = 'archives';
+
+    // Tab switch handler with Bootstrap and fallback support
+    document.addEventListener('DOMContentLoaded', function() {
+        const triggerTabList = document.querySelectorAll('#archiveTabs button');
+
+        const handleTabActivation = (tabId) => {
+            currentActiveTab = tabId;
+            if (tabId === 'health') {
+                startHealthMonitoring();
+            } else if (tabId === 'logs') {
+                loadLogsTab();
+            }
+        };
+
+        triggerTabList.forEach(triggerEl => {
+            // Normal Bootstrap tab event
+            triggerEl.addEventListener('shown.bs.tab', event => {
+                const tabId = event.target.getAttribute('data-bs-target')?.substring(1);
+                if (tabId) {
+                    handleTabActivation(tabId);
+                }
+            });
+
+            // Fallback manual toggle if Bootstrap JS is unavailable
+            triggerEl.addEventListener('click', event => {
+                if (window.bootstrap && window.bootstrap.Tab) return;
+                const tabId = triggerEl.getAttribute('data-bs-target')?.substring(1);
+                if (!tabId) return;
+                event.preventDefault();
+
+                triggerTabList.forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('#archiveTabsContent .tab-pane').forEach(pane => {
+                    pane.classList.remove('show', 'active');
+                });
+
+                triggerEl.classList.add('active');
+                const targetPane = document.getElementById(tabId);
+                if (targetPane) {
+                    targetPane.classList.add('show', 'active');
+                }
+                handleTabActivation(tabId);
+            });
+        });
+
+        // Ensure the initially active tab pane is shown if Bootstrap JS did not run
+        const activeBtn = document.querySelector('#archiveTabs .nav-link.active');
+        if (activeBtn && !(window.bootstrap && window.bootstrap.Tab)) {
+            const tabId = activeBtn.getAttribute('data-bs-target')?.substring(1);
+            if (tabId) {
+                const targetPane = document.getElementById(tabId);
+                if (targetPane) {
+                    targetPane.classList.add('show', 'active');
+                }
+                handleTabActivation(tabId);
+            }
+        }
+    });
+
+    // ========== HEALTH MONITORING (NEW) ==========
+    
+    async function loadHealthMetrics() {
+        try {
+            const response = await fetch('/api/health');
+            const health = await response.json();
+
+            // Update overall status
+            updateOverallStatus(health);
+            
+            // Update OPC health
+            updateOpcHealth(health.opc);
+            
+            // Update DB Writer health
+            updateDbWriterHealth(health.dbWriter);
+            
+            // Update Spool health
+            updateSpoolHealth(health.spool);
+            
+            // Update Archiver health
+            updateArchiverHealth(health.archiver);
+            
+            // Update Resources
+            updateResourceHealth(health.resources);
+
+        } catch (error) {
+            console.error('Error loading health metrics:', error);
+        }
+    }
+
+    function updateOverallStatus(health) {
+        const statusIcon = document.getElementById('overallStatusIcon');
+        const statusText = document.getElementById('overallStatusText');
+        const scoreElement = document.getElementById('overallHealthScore');
+        const healthBar = document.getElementById('overallHealthBar');
+        const badge = document.getElementById('healthTabBadge');
+
+        // Update score
+        scoreElement.textContent = health.overallHealthScore + '%';
+        healthBar.style.width = health.overallHealthScore + '%';
+        healthBar.setAttribute('aria-valuenow', health.overallHealthScore);
+        
+        // Update status and colors
+        if (health.overallStatus === 'Healthy') {
+            statusIcon.textContent = '✅';
+            statusText.textContent = 'System Healthy';
+            statusText.className = 'text-success';
+            healthBar.className = 'progress-bar bg-success';
+            badge.className = 'badge bg-success ms-1';
+            badge.style.display = 'inline';
+        } else if (health.overallStatus === 'Degraded') {
+            statusIcon.textContent = '⚠️';
+            statusText.textContent = 'System Degraded';
+            statusText.className = 'text-warning';
+            healthBar.className = 'progress-bar bg-warning';
+            badge.className = 'badge bg-warning ms-1';
+            badge.style.display = 'inline';
+        } else if (health.overallStatus === 'Critical') {
+            statusIcon.textContent = '❌';
+            statusText.textContent = 'System Critical';
+            statusText.className = 'text-danger';
+            healthBar.className = 'progress-bar bg-danger';
+            badge.className = 'badge bg-danger ms-1';
+            badge.style.display = 'inline';
+        } else {
+            statusIcon.textContent = '⚪';
+            statusText.textContent = 'System Offline';
+            statusText.className = 'text-secondary';
+            healthBar.className = 'progress-bar bg-secondary';
+            badge.style.display = 'none';
+        }
+
+        document.getElementById('activeAlerts').textContent = health.activeAlerts;
+        document.getElementById('warningCount').textContent = health.warningCount;
+        document.getElementById('errorCount').textContent = health.errorCount;
+    }
+
+    function updateOpcHealth(opc) {
+        updateHealthCard('opc', opc.status, opc.healthScore);
+        document.getElementById('opcServer').textContent = opc.serverName || '--';
+        document.getElementById('opcTagsConnected').textContent = opc.tagsConnected;
+        document.getElementById('opcTagsActive').textContent = opc.tagsActive;
+        document.getElementById('opcUpdateRate').textContent = opc.updateRateMs ? opc.updateRateMs.toFixed(1) + ' ms' : '-- ms';
+        document.getElementById('opcLastUpdate').textContent = opc.lastUpdate ? formatDateTime(opc.lastUpdate) : '--';
+        document.getElementById('opcErrors').textContent = opc.errorCount;
+    }
+
+    function updateDbWriterHealth(db) {
+        updateHealthCard('db', db.status, db.healthScore);
+        document.getElementById('dbTotalRecords').textContent = db.totalRecordsWritten.toLocaleString();
+        document.getElementById('dbLastBatch').textContent = db.recordsLastBatch.toLocaleString();
+        document.getElementById('dbWriteRate').textContent = db.writeRatePerSecond.toFixed(1) + '/s';
+        document.getElementById('dbQueueSize').textContent = db.batchQueueSize;
+        document.getElementById('dbErrors').textContent = db.errorCount;
+
+        // Tag coverage (push-only, no DB pull)
+        document.getElementById('dbMappedTags').textContent = (db.mappedTags ?? 0).toLocaleString();
+        document.getElementById('dbObservedTags').textContent = (db.observedTagsRecent ?? 0).toLocaleString();
+        document.getElementById('dbMissingTags').textContent = (db.missingTags ?? 0).toLocaleString();
+        document.getElementById('dbWindowSec').textContent = db.observedWindowSeconds ?? '--';
+
+        const badge = document.getElementById('dbCoverageBadge');
+        const missing = db.missingTags ?? 0;
+        if (missing > 0) {
+            badge.textContent = 'Missing tags';
+            badge.className = 'badge bg-danger';
+        } else {
+            badge.textContent = 'OK';
+            badge.className = 'badge bg-success';
+        }
+    }
+
+    function updateSpoolHealth(spool) {
+        updateHealthCard('spool', spool.status, spool.healthScore);
+        document.getElementById('spoolFiles').textContent = spool.filesInSpool;
+        document.getElementById('spoolSize').textContent = spool.spoolSizeMB + ' MB';
+        document.getElementById('spoolReplayed').textContent = spool.recordsReplayed.toLocaleString();
+        document.getElementById('spoolLastReplay').textContent = spool.lastReplayTime ? formatDateTime(spool.lastReplayTime) : '--';
+        document.getElementById('spoolErrors').textContent = spool.replayErrorCount;
+    }
+
+    function updateArchiverHealth(archiver) {
+        updateHealthCard('archiver', archiver.status, archiver.healthScore);
+        document.getElementById('archiverUnarchived').textContent = archiver.unarchivedFilesCount;
+        document.getElementById('archiverArchived').textContent = archiver.archiveFilesCount;
+        document.getElementById('archiverCurrent').textContent = archiver.currentArchiveSizeMB.toFixed(2) + ' MB';
+        document.getElementById('archiverLastRun').textContent = archiver.lastArchiveTime ? formatDateTime(archiver.lastArchiveTime) : '--';
+        document.getElementById('archiverErrors').textContent = archiver.errorCount;
+    }
+
+    function updateResourceHealth(resources) {
+        document.getElementById('resourceCpu').textContent = resources.cpuUsagePercent + '%';
+        const cpuBar = document.getElementById('resourceCpuBar');
+        cpuBar.style.width = resources.cpuUsagePercent + '%';
+        cpuBar.className = getResourceBarClass(resources.cpuUsagePercent);
+        cpuBar.setAttribute('aria-valuenow', resources.cpuUsagePercent);
+
+        document.getElementById('resourceMemory').textContent = resources.memoryUsageMB + ' MB (' + resources.memoryUsagePercent.toFixed(1) + '%)';
+        const memBar = document.getElementById('resourceMemoryBar');
+        memBar.style.width = resources.memoryUsagePercent + '%';
+        memBar.className = getResourceBarClass(resources.memoryUsagePercent);
+        memBar.setAttribute('aria-valuenow', resources.memoryUsagePercent);
+
+        document.getElementById('resourceDisk').textContent = resources.diskFreeMB + ' MB (' + resources.diskUsagePercent.toFixed(1) + '%)';
+        const diskBar = document.getElementById('resourceDiskBar');
+        diskBar.style.width = resources.diskUsagePercent + '%';
+        diskBar.className = getResourceBarClass(resources.diskUsagePercent);
+        diskBar.setAttribute('aria-valuenow', resources.diskUsagePercent);
+
+        document.getElementById('resourceThreads').textContent = resources.threadCount;
+        document.getElementById('resourceHealthScore').textContent = resources.healthScore + '%';
+    }
+
+    function updateHealthCard(prefix, status, healthScore) {
+        const statusElement = document.getElementById(prefix + 'Status');
+        const scoreElement = document.getElementById(prefix + 'HealthScore');
+        const healthBar = document.getElementById(prefix + 'HealthBar');
+
+        // Update status badge
+        statusElement.textContent = status;
+        if (status === 'Running' || status === 'Connected' || status === 'Healthy') {
+            statusElement.className = 'badge bg-success';
+        } else if (status === 'Idle' || status === 'Disconnected') {
+            statusElement.className = 'badge bg-warning';
+        } else if (status === 'Error' || status === 'Critical') {
+            statusElement.className = 'badge bg-danger';
+        } else if (status === 'Disabled') {
+            statusElement.className = 'badge bg-secondary';
+        } else {
+            statusElement.className = 'badge bg-secondary';
+        }
+
+        // Update health score
+        scoreElement.textContent = healthScore + '%';
+        healthBar.style.width = healthScore + '%';
+        healthBar.setAttribute('aria-valuenow', healthScore);
+        
+        if (healthScore >= 90) {
+            healthBar.className = 'progress-bar bg-success';
+        } else if (healthScore >= 70) {
+            healthBar.className = 'progress-bar bg-warning';
+        } else {
+            healthBar.className = 'progress-bar bg-danger';
+        }
+    }
+
+    function getResourceBarClass(percentage) {
+        if (percentage < 60) return 'progress-bar bg-success';
+        if (percentage < 80) return 'progress-bar bg-warning';
+        return 'progress-bar bg-danger';
+    }
+
+    function formatDateTime(dateString) {
+        if (!dateString) return '--';
+        const date = new Date(dateString);
+        return date.toLocaleString();
+    }
+
+    function startHealthMonitoring() {
+        // Initial load
+        loadHealthMetrics();
+        loadTagCoverage();
+        
+        // Always refresh every 3 seconds (lightweight endpoint)
+        if (healthRefreshInterval) {
+            clearInterval(healthRefreshInterval);
+        }
+        healthRefreshInterval = setInterval(() => {
+            loadHealthMetrics();
+        }, 3000);
+
+        // Coverage can refresh less frequently (10s)
+        if (coverageRefreshInterval) {
+            clearInterval(coverageRefreshInterval);
+        }
+        coverageRefreshInterval = setInterval(() => {
+            loadTagCoverage();
+        }, 10000);
+    }
+
+    function stopHealthMonitoring() {
+        if (healthRefreshInterval) {
+            clearInterval(healthRefreshInterval);
+            healthRefreshInterval = null;
+        }
+        if (coverageRefreshInterval) {
+            clearInterval(coverageRefreshInterval);
+            coverageRefreshInterval = null;
+        }
+    }
+
+    async function loadTagCoverage() {
+        try {
+            const resp = await fetch('/api/archive/tag-coverage');
+            if (!resp.ok) throw new Error('Failed to load tag coverage');
+            const data = await resp.json();
+            updateTagCoverageUI(data);
+        } catch (error) {
+            console.error('Error loading tag coverage:', error);
+        }
+    }
+
+    function updateTagCoverageUI(data) {
+        const mapped = data.counts?.mapped ?? 0;
+        const observed = data.counts?.observed ?? 0;
+        const missing = data.counts?.missing ?? 0;
+        const good = data.quality?.good ?? 0;
+        const bad = data.quality?.bad ?? 0;
+        const uncertain = data.quality?.uncertain ?? 0;
+        const hasQuality = data.quality?.available ?? false;
+        const totalQual = good + bad + uncertain;
+        const badRate = totalQual > 0 ? ((bad / totalQual) * 100) : 0;
+
+        document.getElementById('coverageMapped').textContent = mapped.toLocaleString();
+        document.getElementById('coverageObserved').textContent = observed.toLocaleString();
+        document.getElementById('coverageMissing').textContent = missing.toLocaleString();
+        document.getElementById('coverageGood').textContent = hasQuality ? good.toLocaleString() : 'n/a';
+        document.getElementById('coverageBad').textContent = hasQuality ? bad.toLocaleString() : 'n/a';
+        document.getElementById('coverageUncertain').textContent = hasQuality ? uncertain.toLocaleString() : 'n/a';
+        document.getElementById('coverageBadRate').textContent = hasQuality ? badRate.toFixed(1) + '%' : 'n/a';
+        document.getElementById('coverageSource').textContent = data.sourceFile || '--';
+        document.getElementById('coverageRowCount').textContent = (data.rowCount || 0).toLocaleString();
+
+        const badge = document.getElementById('coverageAlertBadge');
+        if (missing > 0 || (hasQuality && badRate >= 5)) {
+            badge.textContent = missing > 0 ? 'Missing tags' : 'High bad rate';
+            badge.className = 'badge bg-danger';
+            badge.style.display = 'inline';
+        } else if (hasQuality && badRate >= 1) {
+            badge.textContent = 'Watch bad rate';
+            badge.className = 'badge bg-warning text-dark';
+            badge.style.display = 'inline';
+        } else {
+            badge.textContent = 'OK';
+            badge.className = 'badge bg-success';
+            badge.style.display = 'inline';
+        }
+    }
+
+    // ========== ARCHIVES TAB (Existing Functions) ==========
+
+    // Helper function to format file size professionally
+    function formatFileSize(sizeMB) {
+        if (sizeMB >= 1024) {
+            return (sizeMB / 1024).toFixed(2) + ' GB';
+        } else if (sizeMB >= 1) {
+            return sizeMB.toFixed(2) + ' MB';
+        } else {
+            return (sizeMB * 1024).toFixed(2) + ' KB';
+        }
+    }
+
+    // Helper function to format datetime professionally
+    function formatDateTime(dateStr) {
+        try {
+            const date = new Date(dateStr);
+            const options = { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric', 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true
+            };
+            return date.toLocaleString('en-US', options);
+        } catch {
+            return dateStr;
+        }
+    }
+
+    async function loadArchiveStats() {
+        try {
+            const response = await fetch('/api/archive/stats');
+            const data = await response.json();
+
+            // Update statistics cards
+            const totalFilesEl = document.getElementById('totalFiles');
+            const totalSizeEl = document.getElementById('totalSize');
+            const avgSizeEl = document.getElementById('avgSize');
+            const logCountEl = document.getElementById('logCount');
+
+            if (totalFilesEl) totalFilesEl.textContent = data.fileCount.toLocaleString();
+            if (totalSizeEl) totalSizeEl.textContent = formatFileSize(data.totalSizeMB);
+            if (avgSizeEl) avgSizeEl.textContent = data.fileCount > 0 ? formatFileSize(data.totalSizeMB / data.fileCount) : '0 KB';
+            if (logCountEl) logCountEl.textContent = data.logFiles.length.toLocaleString();
+
+            // Populate archive files table
+            const tbody = document.getElementById('archiveTableBody');
+            if (tbody) {
+                if (data.archiveFiles.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center p-5"><div class="text-muted"><i class="bi bi-inbox" style="font-size: 3rem;"></i><p class="mt-3">No archive files found</p></div></td></tr>';
+                } else {
+                    tbody.innerHTML = data.archiveFiles.map(file => `
+                        <tr style="border-bottom: 1px solid #dee2e6;">
+                            <td style="padding: 15px;">
+                                <i class="bi bi-file-earmark-arrow-down text-primary"></i>
+                                <strong class="ms-2">${file.name}</strong>
+                            </td>
+                            <td style="padding: 15px;">
+                                <span class="badge bg-info text-dark" style="font-size: 14px; padding: 8px 12px;">${formatFileSize(file.sizeMB)}</span>
+                            </td>
+                            <td style="padding: 15px; color: #666;">${formatDateTime(file.created)}</td>
+                            <td style="padding: 15px; color: #666;">${formatDateTime(file.modified)}</td>
+                            <td style="padding: 15px; text-align: center;">
+                                <button class="btn btn-success btn-sm me-1" onclick="showConversionPanel('${file.name}')" style="padding: 8px 16px; font-size: 14px;">
+                                    <i class="bi bi-download"></i> Convert
+                                </button>
+                                <button class="btn btn-outline-primary btn-sm" onclick="showFileInfo('${file.name}')" style="padding: 8px 16px; font-size: 14px;">
+                                    <i class="bi bi-info-circle"></i> Info
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            }
+
+            // Populate log files dropdown (only if element exists)
+            const logSelect = document.getElementById('logFileSelect');
+            if (logSelect) {
+                logSelect.innerHTML = '<option value="">Select a log file...</option>' +
+                    data.logFiles.map(log => `<option value="${log.name}">${log.name} (${log.sizeKB} KB)</option>`).join('');
+            }
+
+        } catch (error) {
+            console.error('Error loading archive stats:', error);
+            alert('Error loading archive data: ' + error.message);
+        }
+    }
+
+    async function showFileInfo(fileName) {
+        try {
+            const response = await fetch(`/api/archive/info/${fileName}`);
+            const info = await response.json();
+
+            const infoHtml = `
+                <strong><i class="bi bi-file-earmark-text"></i> File Information:</strong><br>
+                <div class="row mt-2">
+                    <div class="col-md-3"><strong>Total Rows:</strong> ${info.rowCount.toLocaleString()}</div>
+                    <div class="col-md-3"><strong>Columns:</strong> ${info.columnCount}</div>
+                    <div class="col-md-3"><strong>Size:</strong> ${formatFileSize(info.sizeMB)}</div>
+                    <div class="col-md-3"><strong>Row Groups:</strong> ${info.rowGroupCount}</div>
+                </div>
+                <div class="mt-2">
+                    <strong>Date Range:</strong> ${formatDateTime(info.minDate) || 'N/A'} to ${formatDateTime(info.maxDate) || 'N/A'}
+                </div>
+            `;
+
+            document.getElementById('fileInfoDisplay').innerHTML = infoHtml;
+            currentFileInfo = info;
+
+        } catch (error) {
+            console.error('Error loading file info:', error);
+            alert('Error loading file info: ' + error.message);
+        }
+    }
+
+    async function showConversionPanel(fileName) {
+        currentArchiveFile = fileName;
+        document.getElementById('selectedFileName').textContent = fileName;
+        document.getElementById('conversionPanel').style.display = 'block';
+        
+        // Load file info and populate columns
+        await showFileInfo(fileName);
+        
+        if (currentFileInfo && currentFileInfo.columns) {
+            const checkboxesDiv = document.getElementById('columnCheckboxes');
+            checkboxesDiv.innerHTML = currentFileInfo.columns.map(col => `
+                <div class="form-check column-checkbox">
+                    <input class="form-check-input" type="checkbox" value="${col}" id="col_${col}" checked>
+                    <label class="form-check-label" for="col_${col}">
+                        ${col}
+                    </label>
+                </div>
+            `).join('');
+        }
+
+        // Scroll to conversion panel
+        document.getElementById('conversionPanel').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function convertToCsv() {
+        if (!currentArchiveFile) {
+            alert('No file selected');
+            return;
+        }
+
+        // Get selected columns
+        const checkboxes = document.querySelectorAll('#columnCheckboxes input[type="checkbox"]:checked');
+        const selectedColumns = Array.from(checkboxes).map(cb => cb.value);
+
+        const statusDiv = document.getElementById('conversionStatus');
+        statusDiv.innerHTML = `
+            <div class="alert alert-warning">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                <strong>Converting...</strong> Please wait, processing ${currentFileInfo?.rowCount?.toLocaleString() || 'data'} rows...
+            </div>
+        `;
+
+        try {
+            const requestBody = {
+                fileName: currentArchiveFile,
+                columns: selectedColumns.length > 0 ? selectedColumns : null
+            };
+
+            const response = await fetch('/api/archive/convert', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                const isZipped = result.isZipped || result.filesCreated > 1;
+                
+                statusDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <h5><i class="bi bi-check-circle-fill"></i> Conversion Complete!</h5>
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-8\">
+                                <p class="mb-2\"><strong>File:</strong> ${result.resultFile}</p>
+                                <p class="mb-2\"><strong>Rows Converted:</strong> ${result.totalRowsWritten.toLocaleString()}</p>
+                                ${isZipped ? `<p class="mb-2"><strong>CSV Files:</strong> ${result.filesCreated} files in ZIP</p>` : ''}
+                                <p class="mb-2\"><strong>Size:</strong> ${formatFileSize(result.sizeMB)}</p>
+                                <p class="mb-0\"><small class="text-muted"><i class="bi bi-folder"></i> ${result.downloadPath}</small></p>
+                            </div>
+                            <div class="col-md-4 text-end">
+                                <a href="/api/archive/download/${result.resultFile}" class="btn btn-primary btn-lg" download>
+                                    <i class="bi bi-download"></i> Download
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // Auto-download
+                window.location.href = `/api/archive/download/${result.resultFile}`;
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong><i class="bi bi-exclamation-triangle"></i> Error:</strong> ${result.error || 'Conversion failed'}
+                    </div>
+                `;
+            }
+
+        } catch (error) {
+            console.error('Error converting file:', error);
+            statusDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong><i class="bi bi-exclamation-triangle"></i> Error:</strong> ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    // ========== LOGS TAB FUNCTIONS ==========
+    
+    async function loadLogsTab() {
+        try {
+            const response = await fetch('/api/archive/stats');
+            const data = await response.json();
+
+            // Populate log files dropdown in Logs tab
+            const logSelect = document.getElementById('logFileSelectLogs');
+            logSelect.innerHTML = '<option value="">Select a log file...</option>' +
+                data.logFiles.map(log => `<option value="${log.name}">${log.name} (${log.sizeKB} KB)</option>`).join('');
+
+        } catch (error) {
+            console.error('Error loading logs tab:', error);
+        }
+    }
+
+    async function loadLogContentLogs() {
+        const logFile = document.getElementById('logFileSelectLogs').value;
+        const logContent = document.getElementById('logContentLogs');
+
+        if (!logFile) {
+            logContent.textContent = 'No log selected';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/archive/log/${logFile}`);
+            const data = await response.json();
+
+            logContent.textContent = data.content || 'Empty log file';
+
+        } catch (error) {
+            console.error('Error loading log content:', error);
+            logContent.textContent = 'Error loading log: ' + error.message;
+        }
+    }
+
+    async function loadLogContent() {
+        const logFile = document.getElementById('logFileSelect').value;
+        const logContent = document.getElementById('logContent');
+
+        if (!logFile) {
+            logContent.textContent = 'No log selected';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/archive/log/${logFile}`);
+            const data = await response.json();
+
+            logContent.textContent = data.content || 'Empty log file';
+
+        } catch (error) {
+            console.error('Error loading log content:', error);
+            logContent.textContent = 'Error loading log: ' + error.message;
+        }
+    }
+
+    async function compressArchives() {
+        const startDate = document.getElementById('compressStartDate').value;
+        const endDate = document.getElementById('compressEndDate').value;
+        const statusDiv = document.getElementById('compressStatus');
+
+        if (!startDate || !endDate) {
+            statusDiv.innerHTML = '<div class="alert alert-danger">Please select both start and end dates</div>';
+            return;
+        }
+
+        statusDiv.innerHTML = '<div class="alert alert-info">Compressing archives... Please wait.</div>';
+
+        try {
+            const response = await fetch('/api/archive/compress', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate, endDate })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>✅ Compression Complete!</strong><br>
+                        ZIP File: ${result.zipFile}<br>
+                        Files Compressed: ${result.filesCompressed}<br>
+                        Original Size: ${result.originalSizeMB} MB<br>
+                        Compressed Size: ${result.compressedSizeMB} MB<br>
+                        Space Saved: ${result.compressionRatio}%<br>
+                        <a href="/api/archive/download/${result.zipFile}" class="btn btn-sm btn-success mt-2">
+                            <i class="bi bi-download"></i> Download ZIP
+                        </a>
+                    </div>
+                `;
+                // Refresh compressed archives list
+                await loadCompressedArchives();
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-warning">${result.error || result.message}</div>`;
+            }
+
+        } catch (error) {
+            console.error('Error compressing archives:', error);
+            statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        }
+    }
+
+    async function loadCompressedArchives() {
+        try {
+            const response = await fetch('/api/archive/compressed');
+            const data = await response.json();
+
+            const tbody = document.getElementById('compressedTableBody');
+            if (data.files.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">No compressed archives found</td></tr>';
+            } else {
+                tbody.innerHTML = data.files.map(file => `
+                    <tr>
+                        <td><strong>${file.name}</strong></td>
+                        <td>${file.sizeMB} MB</td>
+                        <td>${file.created}</td>
+                        <td>
+                            <a href="/api/archive/download/${file.name}" class="btn btn-sm btn-success">
+                                <i class="bi bi-download"></i> Download
+                            </a>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+        } catch (error) {
+            console.error('Error loading compressed archives:', error);
+        }
+    }
+
+    // Set max date for compression (1 day ago)
+    function setCompressionDateLimits() {
+        const oneDayAgo = new Date();
+        oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+        const maxDate = oneDayAgo.toISOString().split('T')[0];
+        
+        document.getElementById('compressEndDate').setAttribute('max', maxDate);
+        
+        // Set default range: 30 days ago to 1 day ago
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        document.getElementById('compressStartDate').value = thirtyDaysAgo.toISOString().split('T')[0];
+        document.getElementById('compressEndDate').value = maxDate;
+    }
+
+    // Auto-refresh stats every 30 seconds
+    setInterval(loadArchiveStats, 30000);
+
+    // Initial load
+    window.addEventListener('load', () => {
+        loadArchiveStats();
+        loadCompressedArchives();
+        setCompressionDateLimits();
+        startHealthMonitoring(); // ensure health data shows even before tab switch
+    });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+</body>
+</html>

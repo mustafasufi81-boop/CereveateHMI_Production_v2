@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+.eggs/
+
+# Logs
+*.log
+logs/
+Logs/
+
+# Node / React
+node_modules/
+dist/
+.next/
+build/
+
+# C# Build artifacts
+bin/
+obj/
+*.user
+.vs/
+
+# Database backups
+*.dump
+*.bak
+
+# Secrets / config with credentials (keep config.json templates but not live ones with passwords)
+# config.json is kept intentionally - contains DB config needed for deployment
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+
+# Compiled React build (generated, not source)
+HMI/apex-hmi/dist/
+
+# Test spool data (runtime test artifacts, not source code)
+mqtt_subscriber_service/tests/spool*/
+mqtt_subscriber_service/tests/spool_*/
+mqtt_subscriber_service/tests/OPS_HMI_WEB/
+
+# Backup folders (not source code)
+**/Backup_Shakil/
+Backup_Shakil/

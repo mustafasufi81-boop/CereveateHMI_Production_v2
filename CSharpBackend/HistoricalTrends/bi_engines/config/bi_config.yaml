@@ -1,0 +1,152 @@
+# =====================================================
+# BI Engine Configuration
+# Plant-specific thresholds and parameters
+# ZERO HARDCODING - ALL VALUES CONFIGURABLE
+# =====================================================
+
+# Baseline Engine Configuration
+baseline_engine:
+  baseline_window: 30  # days - rolling window for baseline calculation
+  top_percentile: 10   # % - top performance percentile
+  outlier_threshold: 3 # sigma/IQR multiplier
+  outlier_method: 'iqr'  # Options: 'sigma', 'iqr', 'mad', 'percentile'
+  min_data_points: 50  # minimum samples for valid baseline
+
+# Efficiency Adjustment Engine Configuration
+# IMPORTANT: Configure these thresholds per plant - DO NOT use defaults blindly
+efficiency_engine:
+  influencing_parameters:
+    Vibration:
+      weight: 0.15
+      threshold: 3.0
+      unit: 'mm/s'
+      direction: 'higher_worse'
+    CondenserVacuum:
+      weight: 0.20
+      threshold: -650
+      unit: 'mmHg'
+      direction: 'lower_worse'
+    NOx:
+      weight: 0.10
+      threshold: 150
+      unit: 'PPM'
+      direction: 'higher_worse'
+    CoalQuality:
+      weight: 0.15
+      threshold: 3500
+      unit: 'kcal/kg'
+      direction: 'lower_worse'
+    MSPressure:
+      weight: 0.12
+      threshold: 0.02
+      unit: '% deviation'
+      direction: 'higher_worse'
+    FeedwaterTemp:
+      weight: 0.08
+      threshold: 200
+      unit: '°C'
+      direction: 'higher_worse'
+    AuxPower:
+      weight: 0.10
+      threshold: 5
+      unit: '% of gross'
+      direction: 'higher_worse'
+    Fouling:
+      weight: 0.10
+      threshold: 0.05
+      unit: 'factor'
+      direction: 'higher_worse'
+
+# Delta Scorer Configuration
+delta_scorer:
+  event_weights:
+    trip: 10.0
+    startup: 5.0
+    shutdown: 5.0
+    load_ramp: 3.0
+    low_load: 2.0
+    part_load: 1.5
+    stable_run: 1.0
+  ramp_threshold: 0.20  # 20% deviation indicates ramping
+
+# Availability Engine Configuration
+availability_engine:
+  low_load_threshold: 0.3  # 30% of rated capacity
+
+# Influence Map Engine Configuration
+influence_engine:
+  rolling_window: 24  # hours
+  max_lag: 60        # minutes
+
+# Condition Scoring Engine Configuration
+# IMPORTANT: Customize per plant equipment specifications
+condition_engine:
+  default_thresholds:
+    Vibration:
+      green: [0, 3]
+      yellow: [3, 5]
+      red: [5, 100]
+      unit: 'mm/s'
+    NOx:
+      green: [0, 150]
+      yellow: [150, 180]
+      red: [180, 1000]
+      unit: 'PPM'
+    MSPressure:
+      green: [0, 1]
+      yellow: [1, 3]
+      red: [3, 100]
+      unit: '% dev'
+    Vacuum:
+      green: [-680, -640]
+      yellow: [-640, -620]
+      red: [-620, 0]
+      unit: 'mmHg'
+    Temperature:
+      green: [0, 550]
+      yellow: [550, 575]
+      red: [575, 1000]
+      unit: '°C'
+    Efficiency:
+      green: [35, 100]
+      yellow: [30, 35]
+      red: [0, 30]
+      unit: '%'
+
+# Loss Attribution Engine Configuration
+loss_engine:
+  top_n_contributors: 5
+
+# Plant-Specific Settings (CUSTOMIZE PER DEPLOYMENT)
+plant:
+  name: 'Power Plant 1'
+  rated_capacity: null  # MW - MUST be provided by client in API call
+  timezone: 'UTC'
+  location: 'Not specified'
+  
+# Cache Configuration (PER-USER ISOLATION)
+cache:
+  enabled: true
+  ttl: 3600  # seconds (1 hour)
+  max_size: 1000  # max cached items per user
+  
+# API Configuration (MULTI-USER CONCURRENT)
+api:
+  host: '0.0.0.0'
+  port: 5001
+  debug: false
+  cors_origins:
+    - 'http://localhost:5000'
+    - 'http://localhost:5001'
+    - 'http://127.0.0.1:5000'
+    - 'http://127.0.0.1:5001'
+  max_request_size: 100  # MB
+  max_workers: 4  # CPU cores for parallel processing
+  session_timeout: 60  # minutes - auto cleanup inactive sessions
+  
+# Performance Settings (ZERO LAG)
+performance:
+  async_processing: true  # Use async operations for all endpoints
+  process_pool: true      # Use process pool for CPU-intensive tasks
+  max_data_points: 1000000  # Maximum points per request
+  batch_size: 10000       # Batch size for large dataset processing

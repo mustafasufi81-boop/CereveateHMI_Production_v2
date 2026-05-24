@@ -1,0 +1,12 @@
+# Raspberry Pi Requirements - Minimal & Guaranteed
+# No heavy dependencies - works on all ARM platforms
+
+# PLC Communication
+pycomm3>=1.2.0
+
+# PostgreSQL Database
+psycopg2-binary>=2.9.0
+
+# NO ADDITIONAL DEPENDENCIES NEEDED!
+# CSV and GZIP are built into Python standard library
+# No PyArrow, no pytz, no compilation required

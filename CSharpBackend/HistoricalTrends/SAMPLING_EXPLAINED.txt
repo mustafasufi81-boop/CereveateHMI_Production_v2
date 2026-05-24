@@ -1,0 +1,157 @@
+﻿
+=============================================================================
+               SAMPLING EXPLANATION - HOW IT WORKS NOW
+=============================================================================
+
+YOUR QUESTION: 'How u apply sampling filter i am taking data every minute 
+my question how minute data is picked also if select 50 sec or 2 min 
+how u will do the sampling'
+
+ANSWER:
+--------
+
+The NEW IMPROVED sampling system works in 2 steps:
+
+STEP 1: DIVIDE TIME INTO BUCKETS
+---------------------------------
+If you select '60 seconds' sampling:
+- Bucket 1: 10:00:00 to 10:00:59
+- Bucket 2: 10:01:00 to 10:01:59
+- Bucket 3: 10:02:00 to 10:02:59
+... and so on
+
+If you select '30 seconds' sampling:
+- Bucket 1: 10:00:00 to 10:00:29
+- Bucket 2: 10:00:30 to 10:00:59
+- Bucket 3: 10:01:00 to 10:01:29
+... and so on
+
+STEP 2: PICK ONE POINT FROM EACH BUCKET
+----------------------------------------
+You now have 6 METHODS to choose from:
+
+1. FIRST POINT (Default - Fastest)
+   - Takes the FIRST data point in each bucket
+   - Example Bucket (10:00:00-10:00:59):
+     * 10:00:05 = 100  SELECTED
+     * 10:00:15 = 102 (skipped)
+     * 10:00:45 = 105 (skipped)
+
+2. LAST POINT
+   - Takes the LAST data point in each bucket
+   - Example Bucket (10:00:00-10:00:59):
+     * 10:00:05 = 100 (skipped)
+     * 10:00:15 = 102 (skipped)
+     * 10:00:45 = 105  SELECTED
+
+3. AVERAGE (Best for smooth trends)
+   - Calculates AVERAGE of all points in bucket
+   - Example Bucket (10:00:00-10:00:59):
+     * 10:00:05 = 100
+     * 10:00:15 = 102
+     * 10:00:45 = 105
+      RESULT = 102.3 (average)
+
+4. MINIMUM (Best for worst-case analysis)
+   - Picks point with LOWEST value in bucket
+   - Example Bucket (10:00:00-10:00:59):
+     * 10:00:05 = 100  SELECTED (minimum)
+     * 10:00:15 = 102
+     * 10:00:45 = 105
+
+5. MAXIMUM (Best for peak detection)
+   - Picks point with HIGHEST value in bucket
+   - Example Bucket (10:00:00-10:00:59):
+     * 10:00:05 = 100
+     * 10:00:15 = 102
+     * 10:00:45 = 105  SELECTED (maximum)
+
+6. MEDIAN (Best for noisy data)
+   - Takes MIDDLE value in bucket
+   - Example Bucket (10:00:00-10:00:59):
+     * 10:00:05 = 100
+     * 10:00:15 = 102  SELECTED (middle value)
+     * 10:00:45 = 105
+
+=============================================================================
+                          PRACTICAL EXAMPLES
+=============================================================================
+
+EXAMPLE 1: You have data every 1 second, want to sample at 60 seconds
+----------------------------------------------------------------------
+Original: 86,400 points/day (1 point per second  86,400 seconds)
+After 60-second sampling: 1,440 points/day (1 point per minute)
+Reduction: 98.3% fewer points!
+
+Time Window: 10:00:00 - 10:00:59 (60 points originally)
+- First Method: Picks point at 10:00:00
+- Last Method: Picks point at 10:00:59
+- Average Method: Averages all 60 points  Single averaged value
+- Min Method: Picks lowest of 60 points
+- Max Method: Picks highest of 60 points
+- Median Method: Picks middle value of 60 points
+
+EXAMPLE 2: You have data every 1 minute, want to sample at 5 minutes
+---------------------------------------------------------------------
+Original: 1,440 points/day (1 point per minute  1,440 minutes)
+After 5-minute sampling: 288 points/day
+Reduction: 80% fewer points
+
+Time Window: 10:00:00 - 10:04:59 (5 points originally)
+- 10:00:00 = 100
+- 10:01:00 = 102
+- 10:02:00 = 98
+- 10:03:00 = 105
+- 10:04:00 = 103
+
+Results by method:
+- First: 100
+- Last: 103
+- Average: 101.6
+- Min: 98
+- Max: 105
+- Median: 102
+
+EXAMPLE 3: Irregular data (your actual case - parquet file)
+-----------------------------------------------------------
+Your file: 1,873,011 total records
+Average gap: 172 seconds (~ 3 minutes)
+Date range: Multiple days
+
+If you select 60-second sampling:
+- System groups all records into 60-second buckets
+- Some buckets may have 0 points (gaps in data)
+- Some buckets may have multiple points
+- One point selected from each bucket based on method
+
+=============================================================================
+                        WHICH METHOD TO USE?
+=============================================================================
+
+USE CASE                          | RECOMMENDED METHOD
+----------------------------------|------------------------------------
+Normal trend viewing              | FIRST (fastest, simple)
+Smooth curves, remove noise       | AVERAGE (smooths fluctuations)
+Find worst-case scenarios         | MINIMUM (shows lowest values)
+Detect peaks, maximum loads       | MAXIMUM (shows highest values)
+Noisy sensor data                 | MEDIAN (resistant to outliers)
+Need latest reading each period   | LAST (most recent in bucket)
+
+FOR POWER PLANT:
+- Turbine Load, MW: Use AVERAGE (smooth trends)
+- Temperature peaks: Use MAXIMUM (catch spikes)
+- Vibration analysis: Use MEDIAN (remove noise)
+- Efficiency trends: Use AVERAGE (smooth curves)
+
+=============================================================================
+
+NOW IN YOUR UI:
+1. Select 'Sampling Rate' = 60 seconds (or any interval)
+2. Select 'Sampling Method' = Average (or any method above)
+3. Click 'Load Trends'
+
+The system will show you ALL data if sampling = 0, or reduced points
+based on your selection!
+
+=============================================================================
+

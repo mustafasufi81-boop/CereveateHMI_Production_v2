@@ -1,0 +1,166 @@
+{
+  "file_id": "MSG-2026-01-06-103045-001",
+  "gateway_id": "GATEWAY-PLC-001",
+  "timestamp": "2026-01-06T10:30:45.123456+00:00",
+  "tags": [
+    {
+      "tag_id": "TEMP_REACTOR_001",
+      "value_num": 185.75,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "PRESSURE_TANK_002",
+      "value_num": 3.45,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "MOTOR_STATUS_M101",
+      "value_num": null,
+      "value_text": null,
+      "value_bool": true,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "FLOW_RATE_FT301",
+      "value_num": 125.8,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "LEVEL_TANK_005",
+      "value_num": 87.5,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "VALVE_POSITION_V204",
+      "value_num": 65.3,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "B",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "VIBRATION_SENSOR_VS101",
+      "value_num": 4.2,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "PH_SENSOR_PH501",
+      "value_num": 7.2,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "ALARM_STATUS_GLOBAL",
+      "value_num": null,
+      "value_text": "ACTIVE",
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    },
+    {
+      "tag_id": "POWER_CONSUMPTION_MAIN",
+      "value_num": 1250.5,
+      "value_text": null,
+      "value_bool": null,
+      "quality": "G",
+      "sample_source": "OPC",
+      "mapping_version": 1,
+      "time": "2026-01-06T10:30:45.123456+00:00"
+    }
+  ],
+  "alarm_summary": {
+    "total_alarms": 3,
+    "critical_count": 1,
+    "warning_count": 2,
+    "info_count": 0,
+    "alarms": [
+      {
+        "tag_id": "TEMP_REACTOR_001",
+        "event_type": "HIGH_ALARM_CRITICAL",
+        "severity": 1,
+        "message": "Reactor temperature exceeded critical threshold (185.75°C > 180.0°C)",
+        "time": "2026-01-06T10:30:45.123456+00:00",
+        "metadata": {
+          "alarm_value": 185.75,
+          "setpoint": 180.0,
+          "unit": "Celsius",
+          "plant": "Plant_A",
+          "area": "Production",
+          "equipment": "Reactor_001",
+          "acknowledged": false,
+          "state": "ACTIVE"
+        }
+      },
+      {
+        "tag_id": "PRESSURE_TANK_002",
+        "event_type": "HIGH_ALARM_WARNING",
+        "severity": 2,
+        "message": "Tank pressure above normal operating range (3.45 Bar > 3.0 Bar)",
+        "time": "2026-01-06T10:30:45.123456+00:00",
+        "metadata": {
+          "alarm_value": 3.45,
+          "setpoint": 3.0,
+          "unit": "Bar",
+          "plant": "Plant_A",
+          "area": "Storage",
+          "equipment": "Tank_002",
+          "acknowledged": false,
+          "state": "ACTIVE"
+        }
+      },
+      {
+        "tag_id": "VIBRATION_SENSOR_VS101",
+        "event_type": "HIGH_ALARM_WARNING",
+        "severity": 2,
+        "message": "Compressor vibration above warning threshold (4.2 mm/s > 3.5 mm/s)",
+        "time": "2026-01-06T10:30:45.123456+00:00",
+        "metadata": {
+          "alarm_value": 4.2,
+          "setpoint": 3.5,
+          "unit": "mm/s",
+          "plant": "Plant_A",
+          "area": "Compression",
+          "equipment": "Compressor_C101",
+          "acknowledged": false,
+          "state": "ACTIVE"
+        }
+      }
+    ]
+  }
+}

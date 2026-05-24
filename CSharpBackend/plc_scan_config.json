@@ -1,0 +1,103 @@
+{
+  "_comment": "PLC Tag Scanning Configuration - Linux Compatible",
+  "plc_connection": {
+    "ip": "192.168.0.20",
+    "slot": 0,
+    "path": "1,0",
+    "timeout": 5,
+    "retry_attempts": 3
+  },
+  "database": {
+    "host": "192.168.0.120",
+    "port": 5432,
+    "database": "Cereveate",
+    "user": "cereveate",
+    "password": "cereveate@222",
+    "sslmode": "disable"
+  },
+  "csv_logging": {
+    "enabled": true,
+    "directory": "/home/cereveate/plc_logs",
+    "compression": "gzip",
+    "timezone": "IST",
+    "rotation_size_mb": 10
+  },
+  "scan_groups": [
+    {
+      "name": "Welding_Fast",
+      "enabled": true,
+      "scan_rate_ms": 500,
+      "description": "High-speed welding parameters",
+      "tags": [
+        "Welding_Current_A",
+        "Welding_Voltage_V",
+        "Arc",
+        "Power"
+      ]
+    },
+    {
+      "name": "Welding_Slow",
+      "enabled": true,
+      "scan_rate_ms": 2000,
+      "description": "Slow-changing welding metadata",
+      "tags": [
+        "Joint_Id",
+        "Pipe_Id",
+        "Welder_id",
+        "WPS_ID",
+        "sim_step"
+      ]
+    },
+    {
+      "name": "Process_Data",
+      "enabled": true,
+      "scan_rate_ms": 1000,
+      "description": "General process variables",
+      "tags": [
+        "Pump_Flow",
+        "Pump_RPM",
+        "Pump_Vibration",
+        "Pump_Motor_Current",
+        "Load_MW"
+      ]
+    },
+    {
+      "name": "Status_Flags",
+      "enabled": true,
+      "scan_rate_ms": 5000,
+      "description": "Status and alarm flags",
+      "tags": [
+        "Pump_Running_Status",
+        "Pump_Healthy",
+        "Pump_Trip",
+        "High_Vibration_Trip",
+        "Overcurrent_Trip"
+      ]
+    }
+  ],
+  "data_filtering": {
+    "enable_deadband": true,
+    "default_deadband": 0.01,
+    "tag_specific_deadbands": {
+      "Welding_Current_A": 0.5,
+      "Welding_Voltage_V": 0.1,
+      "Pump_Flow": 0.5,
+      "Pump_RPM": 1.0
+    },
+    "filter_garbage_values": true,
+    "min_valid_value": 1e-10
+  },
+  "performance": {
+    "batch_size": 100,
+    "db_write_interval_ms": 1000,
+    "csv_write_interval_ms": 5000,
+    "max_queue_size": 10000
+  },
+  "logging": {
+    "console_level": "INFO",
+    "file_level": "DEBUG",
+    "log_directory": "/var/log/plc_scanner",
+    "max_log_size_mb": 50,
+    "log_retention_days": 30
+  }
+}

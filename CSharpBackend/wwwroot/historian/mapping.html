@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Historian - Tag Mapping</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.0/signalr.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1600px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 10px; }
+        .stats { background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; gap: 30px; }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-label { font-size: 12px; color: #666; text-transform: uppercase; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #2196F3; }
+        .toolbar { background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+        button { padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; transition: background 0.2s; }
+        button:hover { background: #1976D2; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.secondary { background: #757575; }
+        button.danger { background: #f44336; }
+        button.success { background: #4CAF50; }
+        .table-wrapper { background: white; border-radius: 5px; overflow: hidden; max-height: 70vh; overflow-y: auto; position: relative; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #2196F3; color: white; font-weight: 600; position: sticky; top: 0; z-index: 10; }
+        tbody tr { transition: background 0.1s; }
+        tbody tr:hover { background: #f5f5f5; }
+        tbody tr.updating { background: #fff3e0; }
+        .badge { padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+        .badge-enabled { background: #4CAF50; color: white; }
+        .badge-disabled { background: #f44336; color: white; }
+        .value-cell { font-family: 'Courier New', monospace; font-weight: bold; color: #1976D2; }
+        .quality-good { color: #4CAF50; }
+        .quality-bad { color: #f44336; }
+        .connection-status { padding: 5px 10px; border-radius: 3px; font-size: 12px; display: inline-block; margin-left: 10px; }
+        .status-connected { background: #4CAF50; color: white; }
+        .status-disconnected { background: #f44336; color: white; }
+        .status-connecting { background: #FF9800; color: white; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto; }
+        .modal-content { background: white; margin: 30px auto; padding: 30px; width: 600px; max-width: 90%; border-radius: 5px; max-height: 90vh; overflow-y: auto; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: 600; color: #333; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 3px; box-sizing: border-box; }
+        .form-group textarea { height: 60px; resize: vertical; }
+        .btn-close { float: right; background: #757575; }
+        .view-mode-indicator { display: inline-block; padding: 8px 15px; background: #e3f2fd; border-radius: 3px; font-weight: 600; color: #1976D2; }
+        .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 3px solid #f3f3f3; border-top: 3px solid #2196F3; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Historian Tag Mapping</h1>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <span class="stat-label">Total Tags</span>
+                <span class="stat-value" id="stat-total">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Enabled</span>
+                <span class="stat-value" id="stat-enabled">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Mapping Version</span>
+                <span class="stat-value" id="stat-version">0</span>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <button id="btn-show-all-tags" onclick="showAllOpcTags()">🔍 Show All OPC Tags</button>
+            <button id="btn-show-db-mapped" onclick="showDbMappedTags()" class="success">📊 Show DB Mapped Tags</button>
+            <button onclick="showAddModal()">➕ Add Manual Mapping</button>
+            <button class="secondary" onclick="refreshCurrentView()">🔄 Refresh</button>
+            <button class="secondary" onclick="window.location.href='dashboard.html'">📊 Dashboard</button>
+            <button class="secondary" onclick="window.location.href='events.html'">📋 Events Log</button>
+            <span class="view-mode-indicator" id="view-mode">View: Mapped Tags</span>
+            <span class="connection-status status-disconnected" id="signalr-status">⚫ Disconnected</span>
+        </div>
+
+        <div class="table-wrapper">
+            <table id="mappings-table">
+                <thead>
+                    <tr>
+                        <th>Tag ID (OPC)</th>
+                        <th>Current Value</th>
+                        <th>Quality</th>
+                        <th>Tag Name</th>
+                        <th>Interval (ms)</th>
+                        <th>OPC Server</th>
+                        <th>Plant/Area/Equip</th>
+                        <th>DB Logging</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="mappings-tbody">
+                    <tr><td colspan="9" style="text-align:center;padding:40px;color:#999;">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <button class="btn-close" onclick="closeModal()">✖ Close</button>
+            <h2 id="modal-title">Add Tag Mapping</h2>
+            <form id="tag-form" onsubmit="saveMapping(event)">
+                <div class="form-group">
+                    <label>Tag ID *</label>
+                    <input type="text" id="form-tag-id" required>
+                </div>
+                <div class="form-group">
+                    <label>Tag Name *</label>
+                    <input type="text" id="form-tag-name" required>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="form-description"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Data Type *</label>
+                    <select id="form-data-type" required>
+                        <option value="double">Double</option>
+                        <option value="int">Int</option>
+                        <option value="bool">Bool</option>
+                        <option value="string">String</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Logging Interval (ms) * (1000-60000)</label>
+                    <input type="number" id="form-interval" min="1000" max="60000" value="1000" required>
+                </div>
+                <div class="form-group">
+                    <label>Engineering Unit</label>
+                    <input type="text" id="form-unit" placeholder="e.g., °C, MW, %">
+                </div>
+                <div class="form-group">
+                    <label>Plant / Area / Equipment</label>
+                    <input type="text" id="form-plant" placeholder="Plant">
+                    <input type="text" id="form-area" placeholder="Area" style="margin-top:5px;">
+                    <input type="text" id="form-equipment" placeholder="Equipment" style="margin-top:5px;">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="form-enabled" checked>
+                        Enabled
+                    </label>
+                </div>
+                <button type="submit">💾 Save</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // =============================================
+        // CONFIGURATION & STATE MANAGEMENT
+        // =============================================
+        const CONFIG = {
+            API_BASE: '/api/historian',
+            SIGNALR_HUB: '/opcHub',
+            UPDATE_THROTTLE_MS: 200,
+            BATCH_RENDER_SIZE: 50,
+            AUTO_REFRESH_INTERVAL_MS: 30000
+        };
+
+        const STATE = {
+            viewMode: 'mapped', // 'mapped' or 'all'
+            mappings: [],
+            availableTags: [],
+            liveData: new Map(), // tagId -> {value, quality, timestamp}
+            signalrConnection: null,
+            isConnected: false,
+            subscribedTags: new Set(),
+            pendingUpdates: new Set(),
+            updateScheduled: false
+        };
+
+        // =============================================
+        // SIGNALR CONNECTION MODULE
+        // =============================================
+        const SignalRManager = {
+            async connect() {
+                try {
+                    updateConnectionStatus('connecting');
+                    
+                    STATE.signalrConnection = new signalR.HubConnectionBuilder()
+                        .withUrl(CONFIG.SIGNALR_HUB)
+                        .withAutomaticReconnect([0, 2000, 5000, 10000])
+                        .configureLogging(signalR.LogLevel.Warning)
+                        .build();
+
+                    STATE.signalrConnection.on('TagValuesUpdated', (data) => {
+                        this.handleTagUpdate(data);
+                    });
+
+                    STATE.signalrConnection.onreconnecting(() => {
+                        updateConnectionStatus('connecting');
+                    });
+
+                    STATE.signalrConnection.onreconnected(() => {
+                        updateConnectionStatus('connected');
+                        this.resubscribeAllTags();
+                    });
+
+                    STATE.signalrConnection.onclose(() => {
+                        updateConnectionStatus('disconnected');
+                        STATE.isConnected = false;
+                    });
+
+                    await STATE.signalrConnection.start();
+                    STATE.isConnected = true;
+                    updateConnectionStatus('connected');
+                    console.log('✅ SignalR connected');
+                } catch (err) {
+                    console.error('❌ SignalR connection failed:', err);
+                    updateConnectionStatus('disconnected');
+                }
+            },
+
+            handleTagUpdate(data) {
+                if (!data || !data.tags) return;
+                
+                // Batch updates for performance
+                data.tags.forEach(tag => {
+                    if (STATE.subscribedTags.has(tag.tagId)) {
+                        STATE.liveData.set(tag.tagId, {
+                            value: tag.value,
+                            quality: tag.quality,
+                            timestamp: new Date()
+                        });
+                        STATE.pendingUpdates.add(tag.tagId);
+                    }
+                });
+
+                // Throttled UI update
+                this.scheduleUIUpdate();
+            },
+
+            scheduleUIUpdate() {
+                if (STATE.updateScheduled) return;
+                
+                STATE.updateScheduled = true;
+                requestAnimationFrame(() => {
+                    this.flushPendingUpdates();
+                    STATE.updateScheduled = false;
+                });
+            },
+
+            flushPendingUpdates() {
+                if (STATE.pendingUpdates.size === 0) return;
+                
+                const updates = Array.from(STATE.pendingUpdates);
+                STATE.pendingUpdates.clear();
+                
+                // Batch DOM updates
+                updates.forEach(tagId => {
+                    const row = document.querySelector(`tr[data-tag-id="${CSS.escape(tagId)}"]`);
+                    if (row) {
+                        const liveData = STATE.liveData.get(tagId);
+                        if (liveData) {
+                            const valueCell = row.querySelector('.value-cell');
+                            const qualityCell = row.querySelector('.quality-cell');
+                            
+                            if (valueCell) {
+                                valueCell.textContent = formatValue(liveData.value);
+                                row.classList.add('updating');
+                                setTimeout(() => row.classList.remove('updating'), 300);
+                            }
+                            
+                            if (qualityCell) {
+                                qualityCell.textContent = liveData.quality || 'GOOD';
+                                qualityCell.className = 'quality-cell ' + 
+                                    (liveData.quality === 'GOOD' ? 'quality-good' : 'quality-bad');
+                            }
+                        }
+                    }
+                });
+            },
+
+            async subscribeToTags(tagIds) {
+                if (!STATE.isConnected || !STATE.signalrConnection) return;
+                
+                try {
+                    tagIds.forEach(id => STATE.subscribedTags.add(id));
+                    await STATE.signalrConnection.invoke('SubscribeToTags', tagIds);
+                    console.log(`📡 Subscribed to ${tagIds.length} tags`);
+                } catch (err) {
+                    console.error('Subscription error:', err);
+                }
+            },
+
+            async resubscribeAllTags() {
+                if (STATE.subscribedTags.size > 0) {
+                    const tags = Array.from(STATE.subscribedTags);
+                    await this.subscribeToTags(tags);
+                }
+            }
+        };
+
+        // =============================================
+        // UTILITY FUNCTIONS
+        // =============================================
+        function formatOpcSource(serverProgId, serverHost) {
+            const prog = (serverProgId || '').trim();
+            const host = (serverHost || '').trim();
+            if (!prog && !host) return '-';
+            if (!host) return prog;
+            if (!prog) return host;
+            return `${prog} @ ${host}`;
+        }
+
+        function formatValue(value) {
+            if (value === null || value === undefined) return '-';
+            if (typeof value === 'number') {
+                return value.toFixed(2);
+            }
+            return String(value);
+        }
+
+        function updateConnectionStatus(status) {
+            const statusEl = document.getElementById('signalr-status');
+            statusEl.className = 'connection-status status-' + status;
+            const statusText = {
+                'connected': '🟢 Connected',
+                'disconnected': '⚫ Disconnected',
+                'connecting': '🟡 Connecting...'
+            };
+            statusEl.textContent = statusText[status] || status;
+        }
+
+        // =============================================
+        // API DATA MANAGER
+        // =============================================
+        const DataManager = {
+            async loadMappings() {
+                try {
+                    const res = await fetch(`${CONFIG.API_BASE}/mapping`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    
+                    const data = await res.json();
+                    STATE.mappings = data.mappings || [];
+                    
+                    updateStats({
+                        total: data.count || 0,
+                        enabled: STATE.mappings.filter(m => m.enabled).length,
+                        version: data.mapping_version || 0
+                    });
+                    
+                    return STATE.mappings;
+                } catch (err) {
+                    console.error('Failed to load mappings:', err);
+                    alert('❌ Failed to load mappings: ' + err.message);
+                    return [];
+                }
+            },
+
+            async loadAvailableTags() {
+                try {
+                    const res = await fetch(`${CONFIG.API_BASE}/mapping/available-tags`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    
+                    const data = await res.json();
+                    STATE.availableTags = data.tags || [];
+                    
+                    updateStats({
+                        total: data.count || 0,
+                        enabled: STATE.availableTags.filter(t => t.isMapped && t.mapping?.enabled).length,
+                        version: '-'
+                    });
+                    
+                    return STATE.availableTags;
+                } catch (err) {
+                    console.error('Failed to load OPC tags:', err);
+                    alert('❌ Failed to load OPC tags: ' + err.message);
+                    return [];
+                }
+            },
+
+            async saveMapping(payload) {
+                try {
+                    const res = await fetch(`${CONFIG.API_BASE}/mapping`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!res.ok) {
+                        const errorText = await res.text();
+                        throw new Error(errorText.substring(0, 200));
+                    }
+
+                    const data = await res.json();
+                    return data;
+                } catch (err) {
+                    throw new Error('Save failed: ' + err.message);
+                }
+            },
+
+            async deleteMapping(tagId) {
+                try {
+                    const res = await fetch(`${CONFIG.API_BASE}/mapping/${encodeURIComponent(tagId)}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (err) {
+                    throw new Error('Delete failed: ' + err.message);
+                }
+            },
+
+            async getMapping(tagId) {
+                try {
+                    const res = await fetch(`${CONFIG.API_BASE}/mapping/${tagId}`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return await res.json();
+                } catch (err) {
+                    throw new Error('Load failed: ' + err.message);
+                }
+            }
+        };
+
+        function updateStats(stats) {
+            document.getElementById('stat-total').textContent = stats.total;
+            document.getElementById('stat-enabled').textContent = stats.enabled;
+            document.getElementById('stat-version').textContent = stats.version;
+        }
+
+        // =============================================
+        // RENDERING ENGINE (Optimized)
+        // =============================================
+        const Renderer = {
+            renderMappedTags() {
+                const tbody = document.getElementById('mappings-tbody');
+                
+                if (STATE.mappings.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#999;">No tag mappings found. Click "Show All OPC Tags" to see available tags.</td></tr>';
+                    return;
+                }
+
+                // Batch rendering for performance
+                const fragment = document.createDocumentFragment();
+                
+                STATE.mappings.forEach(m => {
+                    const row = this.createMappedTagRow(m);
+                    fragment.appendChild(row);
+                });
+
+                tbody.innerHTML = '';
+                tbody.appendChild(fragment);
+                
+                // Subscribe to SignalR for live updates
+                const tagIds = STATE.mappings.filter(m => m.enabled).map(m => m.tagId);
+                if (tagIds.length > 0) {
+                    SignalRManager.subscribeToTags(tagIds);
+                }
+            },
+
+            renderAllOpcTags() {
+                const tbody = document.getElementById('mappings-tbody');
+                
+                if (STATE.availableTags.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#999;">No OPC tags found. Make sure OPC server is connected.</td></tr>';
+                    return;
+                }
+
+                // Batch rendering
+                const fragment = document.createDocumentFragment();
+                
+                STATE.availableTags.forEach(tag => {
+                    const row = this.createOpcTagRow(tag);
+                    fragment.appendChild(row);
+                });
+
+                tbody.innerHTML = '';
+                tbody.appendChild(fragment);
+                
+                // Subscribe to all tags for live data
+                const tagIds = STATE.availableTags.map(t => t.tagId);
+                if (tagIds.length > 0) {
+                    SignalRManager.subscribeToTags(tagIds);
+                }
+            },
+
+            createMappedTagRow(mapping) {
+                const row = document.createElement('tr');
+                row.setAttribute('data-tag-id', mapping.tagId);
+                
+                const liveData = STATE.liveData.get(mapping.tagId);
+                const currentValue = liveData ? formatValue(liveData.value) : '-';
+                const quality = liveData ? (liveData.quality || 'GOOD') : '-';
+                const qualityClass = quality === 'GOOD' ? 'quality-good' : 'quality-bad';
+                
+                row.innerHTML = `
+                    <td><strong>${escapeHtml(mapping.tagId)}</strong></td>
+                    <td class="value-cell">${currentValue}</td>
+                    <td class="quality-cell ${qualityClass}">${quality}</td>
+                    <td>${escapeHtml(mapping.tagName || '')}</td>
+                    <td>${mapping.dbLoggingIntervalMs}</td>
+                    <td>${formatOpcSource(mapping.serverProgId, mapping.serverHost)}</td>
+                    <td>${escapeHtml(mapping.plant || '-')}/${escapeHtml(mapping.area || '-')}/${escapeHtml(mapping.equipment || '-')}</td>
+                    <td><span class="badge ${mapping.enabled ? 'badge-enabled' : 'badge-disabled'}">${mapping.enabled ? 'ON' : 'OFF'}</span></td>
+                    <td>
+                        <button class="secondary" style="padding:5px 10px;font-size:12px;" onclick='editMappingById("${escapeHtml(mapping.tagId)}")'>Edit</button>
+                        <button class="danger" style="padding:5px 10px;font-size:12px;" onclick='deleteMappingById("${escapeHtml(mapping.tagId)}")'>Delete</button>
+                    </td>
+                `;
+                
+                return row;
+            },
+
+            createOpcTagRow(tag) {
+                const row = document.createElement('tr');
+                row.setAttribute('data-tag-id', tag.tagId);
+                
+                if (tag.isMapped) {
+                    row.style.background = '#e8f5e9';
+                }
+                
+                const liveData = STATE.liveData.get(tag.tagId);
+                const currentValue = liveData ? formatValue(liveData.value) : (tag.currentValue || '-');
+                const quality = liveData ? (liveData.quality || 'GOOD') : (tag.quality || '-');
+                const qualityClass = quality === 'GOOD' ? 'quality-good' : 'quality-bad';
+                
+                const isMapped = tag.isMapped;
+                const isEnabled = isMapped && tag.mapping?.enabled;
+                
+                const actionButtons = isMapped
+                    ? `<button class="secondary" style="padding:5px 10px;font-size:12px;" onclick='editMappingById("${escapeHtml(tag.tagId)}")'>Edit</button>
+                       <button class="${isEnabled ? 'danger' : 'success'}" style="padding:5px 10px;font-size:12px;" onclick='toggleTagEnabledById("${escapeHtml(tag.tagId)}", ${!isEnabled})'>${isEnabled ? 'Disable' : 'Enable'}</button>`
+                    : `<button class="success" style="padding:5px 10px;font-size:12px;" onclick='quickEnableTagById("${escapeHtml(tag.tagId)}")'>Enable Logging</button>`;
+                
+                row.innerHTML = `
+                    <td><strong>${escapeHtml(tag.tagId)}</strong></td>
+                    <td class="value-cell">${currentValue}</td>
+                    <td class="quality-cell ${qualityClass}">${quality}</td>
+                    <td>${escapeHtml(tag.mapping?.tagName || '-')}</td>
+                    <td>${tag.mapping?.interval || '-'}</td>
+                    <td>${formatOpcSource(tag.mapping?.serverProgId, tag.mapping?.serverHost)}</td>
+                    <td>-</td>
+                    <td><span class="badge ${isEnabled ? 'badge-enabled' : 'badge-disabled'}">${isEnabled ? 'ON' : 'OFF'}</span></td>
+                    <td>${actionButtons}</td>
+                `;
+                
+                return row;
+            }
+        };
+
+        function escapeHtml(unsafe) {
+            if (!unsafe) return '';
+            return String(unsafe)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // =============================================
+        // VIEW CONTROLLERS
+        // =============================================
+        async function showDbMappedTags() {
+            STATE.viewMode = 'mapped';
+            document.getElementById('view-mode').textContent = 'View: DB Mapped Tags';
+            document.getElementById('btn-show-db-mapped').disabled = true;
+            document.getElementById('btn-show-all-tags').disabled = false;
+            
+            await DataManager.loadMappings();
+            Renderer.renderMappedTags();
+        }
+
+        async function showAllOpcTags() {
+            STATE.viewMode = 'all';
+            document.getElementById('view-mode').textContent = 'View: All OPC Tags';
+            document.getElementById('btn-show-all-tags').disabled = true;
+            document.getElementById('btn-show-db-mapped').disabled = false;
+            
+            await DataManager.loadAvailableTags();
+            Renderer.renderAllOpcTags();
+        }
+
+        async function refreshCurrentView() {
+            if (STATE.viewMode === 'mapped') {
+                await showDbMappedTags();
+            } else {
+                await showAllOpcTags();
+            }
+        }
+
+        // =============================================
+        // ACTION HANDLERS (with XSS protection)
+        // =============================================
+        async function editMappingById(tagId) {
+            try {
+                const mapping = await DataManager.getMapping(tagId);
+                openEditModal(mapping);
+            } catch (err) {
+                alert('❌ ' + err.message);
+            }
+        }
+
+        async function deleteMappingById(tagId) {
+            if (!confirm(`Delete mapping for tag "${tagId}"?`)) return;
+
+            try {
+                const result = await DataManager.deleteMapping(tagId);
+                if (result.success) {
+                    alert('✅ Mapping deleted');
+                    await refreshCurrentView();
+                } else {
+                    alert('❌ Failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('❌ ' + err.message);
+            }
+        }
+
+        async function toggleTagEnabledById(tagId, newEnabledState) {
+            try {
+                const tag = await DataManager.getMapping(tagId);
+                tag.enabled = newEnabledState;
+                
+                const result = await DataManager.saveMapping(tag);
+                if (result.success) {
+                    await refreshCurrentView();
+                } else {
+                    alert('❌ Failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('❌ ' + err.message);
+            }
+        }
+
+        function quickEnableTagById(tagId) {
+            document.getElementById('modal-title').textContent = 'Enable Tag for Database Logging';
+            document.getElementById('form-tag-id').value = tagId;
+            document.getElementById('form-tag-id').readOnly = true;
+            document.getElementById('form-tag-name').value = tagId;
+            document.getElementById('form-description').value = '';
+            document.getElementById('form-data-type').value = 'double';
+            document.getElementById('form-interval').value = '1000';
+            document.getElementById('form-unit').value = '';
+            document.getElementById('form-plant').value = 'Plant1';
+            document.getElementById('form-area').value = 'Area1';
+            document.getElementById('form-equipment').value = 'Equipment1';
+            document.getElementById('form-enabled').checked = true;
+            document.getElementById('edit-modal').style.display = 'block';
+        }
+
+
+        // =============================================
+        // MODAL MANAGEMENT
+        // =============================================
+        function showAddModal() {
+            document.getElementById('modal-title').textContent = 'Add Tag Mapping';
+            document.getElementById('tag-form').reset();
+            document.getElementById('form-tag-id').readOnly = false;
+            document.getElementById('edit-modal').style.display = 'block';
+        }
+
+        function openEditModal(mapping) {
+            try {
+                document.getElementById('modal-title').textContent = 'Edit Tag Mapping';
+                document.getElementById('form-tag-id').value = mapping.tagId;
+                document.getElementById('form-tag-id').readOnly = true;
+                document.getElementById('form-tag-name').value = mapping.tagName || '';
+                document.getElementById('form-description').value = mapping.description || '';
+                
+                const dataTypeMap = { 0: 'double', 1: 'int', 2: 'bool', 3: 'string' };
+                const dataTypeValue = typeof mapping.dataType === 'number' 
+                    ? (dataTypeMap[mapping.dataType] || 'double')
+                    : (mapping.dataType ? mapping.dataType.toLowerCase() : 'double');
+                document.getElementById('form-data-type').value = dataTypeValue;
+                
+                document.getElementById('form-interval').value = mapping.dbLoggingIntervalMs;
+                document.getElementById('form-unit').value = mapping.engUnit || '';
+                document.getElementById('form-plant').value = mapping.plant || '';
+                document.getElementById('form-area').value = mapping.area || '';
+                document.getElementById('form-equipment').value = mapping.equipment || '';
+                document.getElementById('form-enabled').checked = mapping.enabled;
+                document.getElementById('edit-modal').style.display = 'block';
+            } catch (err) {
+                console.error('Error in openEditModal:', err);
+                alert(`❌ Error opening edit form: ${err.message}`);
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('edit-modal').style.display = 'none';
+        }
+
+        async function saveMapping(e) {
+            e.preventDefault();
+            
+            const dataTypeMap = { 'double': 0, 'int': 1, 'bool': 2, 'string': 3 };
+            const dataTypeStr = document.getElementById('form-data-type').value.toLowerCase();
+            const dataType = dataTypeMap[dataTypeStr] ?? 0;
+            
+            const payload = {
+                tagId: document.getElementById('form-tag-id').value,
+                tagName: document.getElementById('form-tag-name').value,
+                description: document.getElementById('form-description').value || null,
+                dataType: dataType,
+                dbLoggingIntervalMs: parseInt(document.getElementById('form-interval').value),
+                engUnit: document.getElementById('form-unit').value || null,
+                plant: document.getElementById('form-plant').value || null,
+                area: document.getElementById('form-area').value || null,
+                equipment: document.getElementById('form-equipment').value || null,
+                enabled: document.getElementById('form-enabled').checked,
+                dbTableName: 'historian_raw.historian_timeseries',
+                createdBy: 'UI'
+            };
+
+            try {
+                const result = await DataManager.saveMapping(payload);
+                
+                if (result.success) {
+                    closeModal();
+                    await refreshCurrentView();
+                } else {
+                    alert('❌ Failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('❌ ' + err.message);
+            }
+        }
+
+        // =============================================
+        // INITIALIZATION
+        // =============================================
+        async function initializeApp() {
+            console.log('🚀 Initializing Historian Mapping Application...');
+            
+            // Connect SignalR
+            await SignalRManager.connect();
+            
+            // Load default view (mapped tags)
+            await showDbMappedTags();
+            
+            // Setup auto-refresh
+            setInterval(refreshCurrentView, CONFIG.AUTO_REFRESH_INTERVAL_MS);
+            
+            console.log('✅ Application initialized successfully');
+        }
+
+        // Start application when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+    </script>
+</body>
+</html>

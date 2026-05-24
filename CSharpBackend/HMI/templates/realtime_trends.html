@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Trends - Millisecond Polling</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+        }
+        
+        .status {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 20px;
+            font-size: 14px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected {
+            background: #44ff44;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .control-panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .control-row {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .control-group label {
+            font-size: 14px;
+            font-weight: 500;
+            opacity: 0.9;
+        }
+        
+        .control-group input,
+        .control-group select {
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            font-size: 14px;
+            min-width: 120px;
+        }
+        
+        .control-group input:focus,
+        .control-group select:focus {
+            outline: 2px solid #00d9ff;
+            background: rgba(255, 255, 255, 0.25);
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #00d9ff;
+            color: #1e3c72;
+        }
+        
+        .btn-primary:hover {
+            background: #00b8e6;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 217, 255, 0.4);
+        }
+        
+        .btn-success {
+            background: #00ff88;
+            color: #1e3c72;
+        }
+        
+        .btn-success:hover {
+            background: #00e67a;
+        }
+        
+        .btn-danger {
+            background: #ff4444;
+            color: #fff;
+        }
+        
+        .btn-danger:hover {
+            background: #cc0000;
+        }
+        
+        .btn-warning {
+            background: #ffaa00;
+            color: #1e3c72;
+        }
+        
+        .btn-warning:hover {
+            background: #ff9900;
+        }
+        
+        .stats-bar {
+            display: flex;
+            gap: 20px;
+            padding: 15px 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            justify-content: space-around;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00d9ff;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        .chart-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            height: 600px;
+            position: relative;
+        }
+        
+        .tag-list {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .tag-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .tag-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .tag-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+        
+        .slider {
+            flex: 1;
+            height: 8px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.2);
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00d9ff;
+            cursor: pointer;
+        }
+        
+        .slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00d9ff;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .value-display {
+            min-width: 80px;
+            padding: 8px 15px;
+            background: rgba(0, 217, 255, 0.2);
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            color: #00d9ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ Real-Time Trends - Millisecond Polling</h1>
+            <div class="status">
+                <div class="status-indicator">
+                    <div class="status-dot" id="connection-dot"></div>
+                    <span id="connection-status">Connecting...</span>
+                </div>
+                <div class="status-indicator">
+                    <span id="update-rate">0 updates/sec</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="control-row">
+                <div class="control-group">
+                    <label>Polling Interval (ms)</label>
+                    <div class="slider-container">
+                        <span>1ms</span>
+                        <input type="range" id="poll-interval" class="slider" min="1" max="1000" value="1000" step="1">
+                        <span>1000ms</span>
+                        <div class="value-display" id="poll-value">1000 ms</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-row">
+                <div class="control-group">
+                    <label>Quick Presets</label>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-primary" onclick="setPolling(1)">1ms (Ultra-fast)</button>
+                        <button class="btn btn-primary" onclick="setPolling(10)">10ms (Very Fast)</button>
+                        <button class="btn btn-primary" onclick="setPolling(50)">50ms (Fast)</button>
+                        <button class="btn btn-primary" onclick="setPolling(100)">100ms (Normal)</button>
+                        <button class="btn btn-primary" onclick="setPolling(500)">500ms (Slow)</button>
+                        <button class="btn btn-primary" onclick="setPolling(1000)">1000ms (1 sec)</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-row">
+                <button class="btn btn-success" id="start-btn" onclick="startPolling()">▶️ Start</button>
+                <button class="btn btn-warning" id="pause-btn" onclick="pausePolling()" disabled>⏸️ Pause</button>
+                <button class="btn btn-danger" onclick="clearChart()">🗑️ Clear</button>
+                
+                <div class="control-group">
+                    <label>Max Points</label>
+                    <select id="max-points" onchange="updateMaxPoints()">
+                        <option value="100">100 points</option>
+                        <option value="500">500 points</option>
+                        <option value="1000" selected>1000 points</option>
+                        <option value="2000">2000 points</option>
+                        <option value="5000">5000 points</option>
+                    </select>
+                </div>
+                
+                <div class="control-group">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="db-logging-enabled" style="width: 20px; height: 20px;">
+                        <span>💾 Database Logging</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="stats-bar">
+                <div class="stat-item">
+                    <div class="stat-value" id="total-samples">0</div>
+                    <div class="stat-label">Total Samples</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="active-tags">0</div>
+                    <div class="stat-label">Active Tags</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="elapsed-time">0:00</div>
+                    <div class="stat-label">Elapsed Time</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="avg-response">0 ms</div>
+                    <div class="stat-label">Avg Response</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="db-writes">0</div>
+                    <div class="stat-label">DB Writes</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="realtime-chart"></canvas>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
+            <div class="tag-list" id="tag-list">
+                <h3>Select Tags</h3>
+                <div id="tag-checkboxes">Loading tags...</div>
+            </div>
+            
+            <div class="tag-list">
+                <h3>📊 Live Values</h3>
+                <div id="live-values" style="font-family: 'Courier New', monospace; font-size: 14px;">
+                    <p style="color: #888;">Select tags to see live values...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+        let pollInterval = 1000;
+        let pollTimer = null;
+        let isPolling = false;
+        let selectedTags = new Set();
+        let chartData = {};
+        let startTime = null;
+        let totalSamples = 0;
+        let responseTimes = [];
+        let dbWrites = 0;
+        let currentValues = {};
+
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('realtime-chart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'millisecond',
+                                stepSize: pollInterval,
+                                displayFormats: {
+                                    millisecond: 'HH:mm:ss.SSS',
+                                    second: 'HH:mm:ss.SSS'
+                                },
+                                tooltipFormat: 'HH:mm:ss.SSS'
+                            },
+                            ticks: { 
+                                color: '#fff',
+                                maxTicksLimit: 10
+                            },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        },
+                        y: {
+                            ticks: { color: '#fff' },
+                            grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#fff' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load tags from backend
+        async function loadTags() {
+            try {
+                const response = await fetch('/api/tags/enabled');
+                const data = await response.json();
+                const tags = data.tags || [];
+                
+                const container = document.getElementById('tag-checkboxes');
+                container.innerHTML = '';
+                
+                tags.forEach((tag, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'tag-item';
+                    
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'tag-checkbox';
+                    checkbox.id = `tag-${index}`;
+                    checkbox.value = tag.tagId;
+                    checkbox.onchange = function() {
+                        toggleTag(tag.tagId, this.checked);
+                    };
+                    
+                    const label = document.createElement('label');
+                    label.htmlFor = `tag-${index}`;
+                    label.style.cursor = 'pointer';
+                    label.style.flex = '1';
+                    label.textContent = tag.tagName || tag.tagId;
+                    
+                    div.appendChild(checkbox);
+                    div.appendChild(label);
+                    container.appendChild(div);
+                });
+                
+                updateConnectionStatus(true);
+            } catch (error) {
+                console.error('Failed to load tags:', error);
+                document.getElementById('tag-checkboxes').innerHTML = '<p style="color: #ff4444;">Failed to load tags. Check backend connection.</p>';
+                updateConnectionStatus(false);
+            }
+        }
+
+        // Toggle tag selection
+        function toggleTag(tagId, checked) {
+            if (checked) {
+                selectedTags.add(tagId);
+                addTagToChart(tagId);
+            } else {
+                selectedTags.delete(tagId);
+                removeTagFromChart(tagId);
+                delete currentValues[tagId];
+            }
+            updateActiveTagsCount();
+            updateLiveValues();
+        }
+
+        // Add tag to chart
+        function addTagToChart(tagId) {
+            if (!chartData[tagId]) {
+                chartData[tagId] = [];
+                const color = getColorForTag(tagId);
+                chart.data.datasets.push({
+                    label: tagId,
+                    data: chartData[tagId],
+                    borderColor: color,
+                    backgroundColor: color + '33',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1
+                });
+                chart.update();
+            }
+        }
+
+        // Remove tag from chart
+        function removeTagFromChart(tagId) {
+            const index = chart.data.datasets.findIndex(ds => ds.label === tagId);
+            if (index !== -1) {
+                chart.data.datasets.splice(index, 1);
+                delete chartData[tagId];
+                chart.update();
+            }
+        }
+
+        // Get color for tag
+        const colors = ['#00d9ff', '#ff6b35', '#00ff88', '#ffd93d', '#ff006e', '#8338ec', '#3a86ff', '#fb5607', '#06ffa5', '#f72585'];
+        function getColorForTag(tagId) {
+            const index = Array.from(selectedTags).indexOf(tagId);
+            return colors[index % colors.length];
+        }
+
+        // Set polling interval
+        function setPolling(ms) {
+            pollInterval = ms;
+            document.getElementById('poll-interval').value = ms;
+            document.getElementById('poll-value').textContent = `${ms} ms`;
+            
+            if (isPolling) {
+                pausePolling();
+                startPolling();
+            }
+        }
+
+        // Start polling
+        function startPolling() {
+            if (selectedTags.size === 0) {
+                alert('Please select at least one tag');
+                return;
+            }
+            
+            isPolling = true;
+            startTime = Date.now();
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('pause-btn').disabled = false;
+            
+            pollData();
+            pollTimer = setInterval(pollData, pollInterval);
+            updateElapsedTime();
+        }
+
+        // Pause polling
+        function pausePolling() {
+            isPolling = false;
+            clearInterval(pollTimer);
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('pause-btn').disabled = true;
+        }
+
+        // Poll data from backend
+        async function pollData() {
+            if (selectedTags.size === 0) return;
+            
+            const reqStart = Date.now();
+            
+            try {
+                const response = await fetch('/api/opc/values');
+                const apiData = await response.json();
+                const reqTime = Date.now() - reqStart;
+                
+                // Convert tags array to map
+                const data = {};
+                if (apiData.tags) {
+                    apiData.tags.forEach(tag => {
+                        data[tag.tagId] = tag.value;
+                    });
+                }
+                
+                responseTimes.push(reqTime);
+                if (responseTimes.length > 10) responseTimes.shift();
+                
+                const timestamp = new Date();
+                const maxPoints = parseInt(document.getElementById('max-points').value);
+                
+                // Log timestamp with milliseconds
+                const logTimestamp = timestamp.toISOString();
+                console.log(`\n========== POLL START: ${logTimestamp} ==========`);
+                console.log(`Poll Interval: ${pollInterval}ms | Total Samples: ${totalSamples + 1}`);
+                
+                selectedTags.forEach(tagId => {
+                    if (data[tagId] !== undefined) {
+                        if (!chartData[tagId]) chartData[tagId] = [];
+                        
+                        const value = parseFloat(data[tagId]);
+                        chartData[tagId].push({
+                            x: timestamp,
+                            y: value
+                        });
+                        
+                        // Store current value for display
+                        currentValues[tagId] = value;
+                        
+                        // LOG: TagName | Value | Timestamp with milliseconds
+                        console.log(`LOG: ${tagId} | ${value} | ${logTimestamp}`);
+                        
+                        // Keep only maxPoints
+                        if (chartData[tagId].length > maxPoints) {
+                            chartData[tagId].shift();
+                        }
+                        
+                        totalSamples++;
+                    }
+                });
+                
+                console.log(`========== POLL END ==========\n`);
+                
+                // Update live values display
+                updateLiveValues();
+                
+                chart.update('none');
+                updateStats();
+                
+                // Log to database if enabled
+                if (document.getElementById('db-logging-enabled')?.checked) {
+                    logToDatabase(data, timestamp);
+                }
+                
+            } catch (error) {
+                console.error('Poll error:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        // Log data to database
+        async function logToDatabase(data, timestamp) {
+            try {
+                const logData = [];
+                selectedTags.forEach(tagId => {
+                    if (data[tagId] !== undefined) {
+                        logData.push({
+                            tag_id: tagId,
+                            value: parseFloat(data[tagId]),
+                            timestamp: timestamp.toISOString(),
+                            poll_interval_ms: pollInterval
+                        });
+                    }
+                });
+                
+                if (logData.length > 0) {
+                    const response = await fetch('/api/log/realtime', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ samples: logData })
+                    });
+                    
+                    if (response.ok) {
+                        dbWrites += logData.length;
+                        document.getElementById('db-writes').textContent = dbWrites.toLocaleString();
+                    }
+                }
+            } catch (error) {
+                console.error('Database logging error:', error);
+            }
+        }
+
+        // Update statistics
+        function updateStats() {
+            document.getElementById('total-samples').textContent = totalSamples.toLocaleString();
+            
+            const avgResponse = responseTimes.length > 0 
+                ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+                : 0;
+            document.getElementById('avg-response').textContent = `${avgResponse} ms`;
+            
+            // Update rate per second
+            if (startTime) {
+                const elapsed = (Date.now() - startTime) / 1000;
+                const rate = (totalSamples / elapsed).toFixed(1);
+                document.getElementById('update-rate').textContent = `${rate} updates/sec`;
+            }
+        }
+
+        // Update elapsed time
+        function updateElapsedTime() {
+            if (!isPolling || !startTime) return;
+            
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(elapsed / 60);
+            const seconds = elapsed % 60;
+            document.getElementById('elapsed-time').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            setTimeout(updateElapsedTime, 1000);
+        }
+
+        // Update active tags count
+        function updateActiveTagsCount() {
+            document.getElementById('active-tags').textContent = selectedTags.size;
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const dot = document.getElementById('connection-dot');
+            const status = document.getElementById('connection-status');
+            
+            if (connected) {
+                dot.classList.add('connected');
+                status.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                status.textContent = 'Disconnected';
+            }
+        }
+        
+        // Update live values display
+        function updateLiveValues() {
+            const container = document.getElementById('live-values');
+            if (selectedTags.size === 0) {
+                container.innerHTML = '<p style="color: #888;">Select tags to see live values...</p>';
+                return;
+            }
+            
+            let html = '<table style="width: 100%; border-collapse: collapse;">';
+            html += '<tr style="border-bottom: 2px solid rgba(255,255,255,0.2); font-weight: bold;">';
+            html += '<td style="padding: 8px;">Tag</td>';
+            html += '<td style="padding: 8px; text-align: right;">Value</td>';
+            html += '</tr>';
+            
+            selectedTags.forEach(tagId => {
+                const value = currentValues[tagId];
+                const displayValue = value !== undefined ? value.toFixed(4) : '---';
+                const color = getColorForTag(tagId);
+                
+                html += '<tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">';
+                html += `<td style="padding: 8px;"><span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 50%; margin-right: 8px;"></span>${tagId}</td>`;
+                html += `<td style="padding: 8px; text-align: right; font-weight: bold; color: ${color};">${displayValue}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+
+        // Update max points
+        function updateMaxPoints() {
+            // Data will be trimmed on next poll
+        }
+
+        // Clear chart
+        function clearChart() {
+            Object.keys(chartData).forEach(tagId => {
+                chartData[tagId] = [];
+            });
+            totalSamples = 0;
+            dbWrites = 0;
+            startTime = null;
+            document.getElementById('total-samples').textContent = '0';
+            document.getElementById('db-writes').textContent = '0';
+            document.getElementById('elapsed-time').textContent = '0:00';
+            chart.update();
+        }
+
+        // Slider event
+        document.getElementById('poll-interval').addEventListener('input', (e) => {
+            pollInterval = parseInt(e.target.value);
+            document.getElementById('poll-value').textContent = `${pollInterval} ms`;
+        });
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+            loadTags();
+        });
+    </script>
+</body>
+</html>

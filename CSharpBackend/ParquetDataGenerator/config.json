@@ -1,0 +1,74 @@
+{
+  "SystemMode": {
+    "AutoStartOnLaunch": false,
+    "BackgroundMode": false
+  },
+  "Paths": {
+    "SimulationOutputDirectory": "D:\\Simulation\\Parquet",
+    "MainDataDirectory": "D:\\OpcLogs\\Data",
+    "BackupDirectory": null
+  },
+  "Simulation": {
+    "Enabled": true,
+    "IntervalSeconds": 5,
+    "FileRotationSizeMB": 2,
+    "DowntimeEnabled": true,
+    "DowntimeProbability": 0.05,
+    "DowntimeDurationSeconds": [30, 300]
+  },
+  "FileTransfer": {
+    "Enabled": true,
+    "TransferIntervalSeconds": 10,
+    "DeleteAfterTransfer": false
+  },
+  "Backup": {
+    "Enabled": false,
+    "BackupIntervalSeconds": 60
+  },
+  "Tags": [
+    "BEARING_VIB_HP_FRONT-XMICRO_METER-UM",
+    "BEARING_VIB_HP_FRONT-Y",
+    "BEARING_VIB_HP_REAR-X",
+    "BEARING_VIB_HP_REAR-Y",
+    "BEARING_VIB_IP_REAR-X",
+    "BEARING_VIB_IP_REAR-Y",
+    "SHAFT_VIB._HP_FRONT-X",
+    "SHAFT_VIB._HP_FRONT-Y",
+    "SHAFT_VIB_HP_REAR-X",
+    "SHAFT_VIB._HP_REAR-YMICRO_METER-UM",
+    "SHAFT_VIB._IP_REAR-X",
+    "SHAFT_VIB._IP_REAR-Y",
+    "MS_TEMPERATURE",
+    "REHEAT_TEMP_HRH",
+    "ms_pressureKG-CM2",
+    "MAIN_STEAM_FLOWTPH",
+    "COOLING_WATER_TEMP_CT_FAN",
+    "O2_LEVEL",
+    "NOX_PPM",
+    "TURBINE_LOADMW",
+    "TOTAL_COAL_FLOW"
+  ],
+  "TagParameters": {
+    "BEARING_VIB_HP_FRONT-XMICRO_METER-UM": { "mean": 18.5, "std_dev": 2.1, "min": 15, "max": 28 },
+    "BEARING_VIB_HP_FRONT-Y": { "mean": 17.8, "std_dev": 2.3, "min": 14, "max": 27 },
+    "BEARING_VIB_HP_REAR-X": { "mean": 19.2, "std_dev": 2.0, "min": 16, "max": 29 },
+    "BEARING_VIB_HP_REAR-Y": { "mean": 18.1, "std_dev": 2.2, "min": 15, "max": 28 },
+    "BEARING_VIB_IP_REAR-X": { "mean": 20.75, "std_dev": 0.22, "min": 20.3, "max": 22.5 },
+    "BEARING_VIB_IP_REAR-Y": { "mean": 20.74, "std_dev": 0.12, "min": 20.5, "max": 21.2 },
+    "SHAFT_VIB._HP_FRONT-X": { "mean": 180.5, "std_dev": 45.2, "min": 100, "max": 370 },
+    "SHAFT_VIB._HP_FRONT-Y": { "mean": 165.3, "std_dev": 52.1, "min": 90, "max": 350 },
+    "SHAFT_VIB_HP_REAR-X": { "mean": 145.7, "std_dev": 35.4, "min": 80, "max": 300 },
+    "SHAFT_VIB._HP_REAR-YMICRO_METER-UM": { "mean": 132.8, "std_dev": 28.9, "min": 75, "max": 250 },
+    "SHAFT_VIB._IP_REAR-X": { "mean": 132.7, "std_dev": 18.5, "min": 95, "max": 200 },
+    "SHAFT_VIB._IP_REAR-Y": { "mean": 97.8, "std_dev": 15.2, "min": 70, "max": 160 },
+    "MS_TEMPERATURE": { "mean": 538, "std_dev": 8.5, "min": 515, "max": 560 },
+    "REHEAT_TEMP_HRH": { "mean": 535, "std_dev": 7.2, "min": 510, "max": 555 },
+    "ms_pressureKG-CM2": { "mean": 168, "std_dev": 5.3, "min": 150, "max": 178 },
+    "MAIN_STEAM_FLOWTPH": { "mean": 750, "std_dev": 45, "min": 650, "max": 850 },
+    "COOLING_WATER_TEMP_CT_FAN": { "mean": 32, "std_dev": 2.5, "min": 28, "max": 38 },
+    "O2_LEVEL": { "mean": 3.5, "std_dev": 0.3, "min": 2.5, "max": 5.0 },
+    "NOX_PPM": { "mean": 180, "std_dev": 20, "min": 140, "max": 250 },
+    "TURBINE_LOADMW": { "mean": 270, "std_dev": 15.8, "min": 200, "max": 290 },
+    "TOTAL_COAL_FLOW": { "mean": 95, "std_dev": 8, "min": 80, "max": 120 }
+  }
+}

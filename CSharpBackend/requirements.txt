@@ -1,0 +1,7 @@
+# Required packages for testing_app_FIXED.py on Raspberry Pi
+# Install with: pip install -r requirements.txt
+
+pycomm3>=1.2.0
+psycopg2-binary>=2.9.0
+pyarrow>=14.0.0
+pytz>=2023.3

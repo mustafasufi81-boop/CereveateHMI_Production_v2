@@ -1,0 +1,46 @@
+# Production WSGI Server Requirements for HMI Flask Application
+# Install with: pip install -r requirements-production.txt
+
+# Base Flask Requirements (from requirements.txt)
+Flask==3.0.0
+Flask-SocketIO==5.3.5
+Flask-CORS==4.0.0
+signalrcore==0.9.5
+requests==2.31.0
+psycopg2-binary==2.9.9
+openpyxl==3.1.5
+python-engineio==4.9.0
+python-socketio==5.11.0
+eventlet==0.35.2
+pyotp==2.9.0
+qrcode==8.0.0
+PyJWT==2.8.0
+bcrypt==4.1.2
+pillow==10.2.0
+paho-mqtt==1.6.1
+
+# Production WSGI Servers
+# Option 1: Gunicorn (Linux/Unix) - Recommended for Linux deployments
+gunicorn==21.2.0
+
+# Option 2: Waitress (Windows/Cross-platform) - Recommended for Windows
+waitress==3.0.0
+
+# Option 3: uWSGI (Advanced, requires compilation)
+# uWSGI==2.0.24  # Uncomment if using uWSGI
+
+# Production Enhancements
+python-dotenv==1.0.0           # Environment variable management
+gevent==24.2.1                 # Async support for WebSockets
+gevent-websocket==0.10.1       # WebSocket support for gevent
+
+# Monitoring & Performance
+prometheus-client==0.19.0      # Metrics collection
+sentry-sdk[flask]==1.40.0      # Error tracking (optional)
+
+# Security
+cryptography==42.0.0           # Enhanced cryptographic support
+
+# Process Management (optional but recommended)
+supervisor                     # Process control system (Linux)
+# pywin32==306                 # Windows Service support (uncomment for Windows Service)

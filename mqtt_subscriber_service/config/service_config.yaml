@@ -1,0 +1,188 @@
+service:
+  name: MQTT_Subscriber_Service
+  version: 1.0.0
+  worker_threads: 20
+  graceful_shutdown_timeout: 30
+  topic_cache_refresh_interval: 300
+  tag_master_cache_refresh_interval: 300
+mqtt:
+  broker_host: localhost
+  broker_port: 1883
+  client_id: MqttSubscriber01
+  qos: 1
+  keep_alive: 60
+  reconnect_on_failure: true
+  reconnect_delay_seconds: 5
+  max_reconnect_attempts: 0
+  clean_session: false
+security:
+  encryption_enabled: false
+  tls_enabled: false
+  tls_cert_path: ''
+  tls_key_path: ''
+  ca_cert_path: ''
+  verify_certificates: true
+  mqtt_username: ''
+  mqtt_password: ''
+database:
+  host: localhost
+  port: 5432
+  database: Automation_DB
+  username: cereveate
+  password: cereveate@222
+  schema: historian_raw
+  pool_size: 20
+  pool_timeout: 30
+  command_timeout: 30
+  auto_commit: false
+processing:
+  enable_retries: false
+  max_batch_size: 1000
+  message_timeout_seconds: 10
+  duplicate_check_enabled: true
+  validate_schema: true
+  sanitize_inputs: true
+  validate_against_tag_master: true
+  reject_unknown_tags: true
+  reject_disabled_tags: true
+logging:
+  level: INFO
+  format: json
+  log_dir: ./logs
+  max_file_size_mb: 100
+  backup_count: 10
+  console_output: true
+  file_output: true
+  separate_error_log: true
+  separate_security_log: true
+monitoring:
+  health_check_enabled: true
+  metrics_enabled: true
+  metrics_interval_seconds: 60
+  expose_rest_api: false
+  rest_api_port: 8080
+trip_detection:
+  enabled: true
+  alarm_to_trip_window_seconds: 2
+  minimum_alarm_priority: 4
+  trip_cooldown_minutes: 5
+  enable_causality_analysis: true
+  enable_cascade_detection: true
+  max_alarm_buffer_size: 1000
+  equipment_monitoring:
+    enable_state_tracking: true
+    enable_run_duration_tracking: true
+    max_state_history: 100
+    rapid_cycling_threshold: 5
+    rapid_cycling_window_minutes: 10
+  equipment_mappings:
+  - equipment_id: Turbine1
+    equipment_name: Turbine1
+    run_status_tag_id: TURBINE1_STATUS
+    trip_tag_id: TURBINE1_TRIP_STATUS
+    rated_capacity_mw: 270.0
+    revenue_per_mwh: 60.0
+    criticality: 5
+  - equipment_id: PUMP
+    equipment_name: PUMP
+    run_status_tag_id: PUMP_RUN_STATUS
+    trip_tag_id: PUMP_TRIP_STATUS
+    rated_capacity_mw: 30.0
+    revenue_per_mwh: 60.0
+    criticality: 4
+  - equipment_id: SYSTEM_A
+    equipment_name: SYSTEM_A
+    run_status_tag_id: SYSTEM_A_RUN_STATUS
+    trip_tag_id: SYSTEM_A_TRIP_STATUS
+    rated_capacity_mw: 200.0
+    revenue_per_mwh: 60.0
+    criticality: 4
+  - equipment_id: Equipment1
+    equipment_name: Equipment1
+    run_status_tag_id: EQUIPMENT1_RUN_STATUS
+    trip_tag_id: EQUIPMENT1_TRIP_STATUS
+    rated_capacity_mw: 100.0
+    revenue_per_mwh: 60.0
+    criticality: 2
+  - equipment_id: Boiler_01
+    equipment_name: Boiler_01
+    run_status_tag_id: BOILER_01_RUN_STATUS
+    trip_tag_id: BOILER_01_TRIP_STATUS
+    rated_capacity_mw: 500.0
+    revenue_per_mwh: 60.0
+    criticality: 3
+  - equipment_id: COMPRESSOR
+    equipment_name: COMPRESSOR
+    run_status_tag_id: COMPRESSOR_RUN_STATUS
+    trip_tag_id: COMPRESSOR_TRIP_STATUS
+    rated_capacity_mw: 80.0
+    revenue_per_mwh: 60.0
+    criticality: 3
+  - equipment_id: Fan_01
+    equipment_name: Fan_01
+    run_status_tag_id: FAN_01_RUN_STATUS
+    trip_tag_id: FAN_01_TRIP_STATUS
+    rated_capacity_mw: 150.0
+    revenue_per_mwh: 60.0
+    criticality: 3
+  - equipment_id: TURBINE
+    equipment_name: TURBINE
+    run_status_tag_id: TURBINE_STATUS
+    trip_tag_id: TURBINE_TRIP_STATUS
+    rated_capacity_mw: 270.0
+    revenue_per_mwh: 60.0
+    criticality: 3
+  - equipment_id: Tuyer_1
+    equipment_name: Tuyer_1
+    run_status_tag_id: TUYER_1_RUN_STATUS
+    trip_tag_id: TUYER_1_TRIP_STATUS
+    rated_capacity_mw: 150.0
+    revenue_per_mwh: 60.0
+    criticality: 3
+  alarm_equipment_relationships:
+  - alarm_type: HIGH_TEMPERATURE
+    equipment_types:
+    - TURBINE
+    - BOILER
+    - HRSG
+    causality_weight: 0.9
+  - alarm_type: HIGH_VIBRATION
+    equipment_types:
+    - TURBINE
+    - COMPRESSOR
+    - PUMP
+    causality_weight: 0.95
+  - alarm_type: LOW_OIL_PRESSURE
+    equipment_types:
+    - TURBINE
+    - COMPRESSOR
+    - PUMP
+    causality_weight: 0.9
+  - alarm_type: HIGH_PRESSURE
+    equipment_types:
+    - BOILER
+    - HRSG
+    - COMPRESSOR
+    causality_weight: 0.85
+  - alarm_type: LOW_FUEL_PRESSURE
+    equipment_types:
+    - TURBINE
+    - BOILER
+    causality_weight: 0.85
+  - alarm_type: EMERGENCY_STOP
+    equipment_types:
+    - TURBINE
+    - BOILER
+    - HRSG
+    - COMPRESSOR
+    - PUMP
+    causality_weight: 1.0
+  - alarm_type: PROTECTIVE_RELAY
+    equipment_types:
+    - TURBINE
+    - BOILER
+    causality_weight: 0.95
+  - alarm_type: OVER_SPEED
+    equipment_types:
+    - TURBINE
+    causality_weight: 0.98

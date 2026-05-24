@@ -1,0 +1,936 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Historian Monitor";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historian Monitor - Tag Status Matrix</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    
+    <!-- Flatpickr for date range picker -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --status-ok: #28a745;
+            --status-stale: #ff6b6b;
+            --status-stopped: #6c757d;
+            --bg-dark: #1a1d23;
+            --bg-card: #2d3238;
+            --text-primary: #e9ecef;
+            --text-secondary: #adb5bd;
+            --border-color: #495057;
+        }
+
+        body {
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .dashboard-header h1 {
+            margin: 0;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .dashboard-header .subtitle {
+            opacity: 0.9;
+            font-size: 1rem;
+            margin-top: 0.5rem;
+        }
+
+        .stats-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .stats-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+        }
+
+        .stats-card .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+
+        .stats-card .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .matrix-container {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+        }
+
+        .matrix-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .matrix-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .refresh-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .refresh-indicator.loading .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @@keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .matrix-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.9rem;
+        }
+
+        .matrix-table thead th {
+            background: #343a40;
+            color: #fff;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .matrix-table tbody tr {
+            border-bottom: 1px solid var(--border-color);
+            transition: background-color 0.2s ease;
+        }
+
+        .matrix-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .matrix-table tbody td {
+            padding: 0.75rem 1rem;
+        }
+
+        .matrix-table tbody tr.stale-tag {
+            background-color: rgba(255, 107, 107, 0.15) !important;
+            animation: pulse-stale 2s ease-in-out infinite;
+        }
+
+        @@keyframes pulse-stale {
+            0%, 100% { background-color: rgba(255, 107, 107, 0.15); }
+            50% { background-color: rgba(255, 107, 107, 0.25); }
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-badge.ok {
+            background-color: var(--status-ok);
+            color: white;
+        }
+
+        .status-badge.stale {
+            background-color: var(--status-stale);
+            color: white;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+
+        @@keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .status-badge.stopped {
+            background-color: var(--status-stopped);
+            color: white;
+        }
+
+        .trends-container {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            border: 1px solid var(--border-color);
+        }
+
+        .trends-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .control-group {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group select,
+        .control-group input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: #343a40;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            padding: 0.5rem 1.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: transform 0.2s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+            margin-top: 1rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .loading-spinner {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .loading-spinner i {
+            font-size: 3rem;
+            animation: spin 1s linear infinite;
+        }
+
+        .tag-count-badge {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin-left: 0.5rem;
+        }
+
+        .no-data-cell {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        /* Responsive design */
+        @@media (max-width: 768px) {
+            .matrix-table {
+                font-size: 0.8rem;
+            }
+
+            .matrix-table thead th,
+            .matrix-table tbody td {
+                padding: 0.5rem;
+            }
+
+            .stats-card .stat-value {
+                font-size: 2rem;
+            }
+
+            .trends-controls {
+                flex-direction: column;
+            }
+
+            .control-group {
+                min-width: 100%;
+            }
+        }
+
+        /* Scrollable table container */
+        .table-responsive {
+            max-height: 600px;
+            overflow-y: auto;
+            overflow-x: auto;
+        }
+
+        .table-responsive::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        .table-responsive::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        .table-responsive::-webkit-scrollbar-thumb:hover {
+            background: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-header">
+        <div class="container">
+            <h1><i class="fas fa-database"></i> Historian Monitor</h1>
+            <p class="subtitle">Real-time tag monitoring and data analysis dashboard</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Summary Statistics Cards -->
+        <div class="row">
+            <div class="col-md-3 col-sm-6">
+                <div class="stats-card">
+                    <div class="stat-value text-success" id="totalTagsCount">-</div>
+                    <div class="stat-label">Total Tags</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="stats-card">
+                    <div class="stat-value text-primary" id="activeTagsCount">-</div>
+                    <div class="stat-label">Active Tags</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="stats-card">
+                    <div class="stat-value text-danger" id="staleTagsCount">-</div>
+                    <div class="stat-label">Stale Tags</div>
+                </div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="stats-card">
+                    <div class="stat-value text-info" id="totalRowsCount">-</div>
+                    <div class="stat-label">Total Rows (24h)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tag Status Matrix -->
+        <div class="matrix-container">
+            <div class="matrix-header">
+                <h2>
+                    <i class="fas fa-table"></i> Tag Status Matrix
+                    <span class="tag-count-badge" id="matrixTagCount">0 tags</span>
+                </h2>
+                <div class="refresh-indicator" id="refreshIndicator">
+                    <i class="fas fa-sync-alt spinner"></i>
+                    <span id="lastRefreshTime">Loading...</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="matrix-table">
+                    <thead>
+                        <tr>
+                            <th>Tag ID</th>
+                            <th>Tag Name</th>
+                            <th>Mapped</th>
+                            <th>Last Update</th>
+                            <th>Row Count (24h)</th>
+                            <th>Data Rate</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="matrixTableBody">
+                        <tr>
+                            <td colspan="7" class="loading-spinner">
+                                <i class="fas fa-spinner"></i>
+                                <p>Loading tag data...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Trends Viewer -->
+        <div class="trends-container">
+            <div class="matrix-header">
+                <h2><i class="fas fa-chart-line"></i> Trends Viewer</h2>
+            </div>
+
+            <div class="trends-controls">
+                <div class="control-group">
+                    <label for="tagSelect"><i class="fas fa-tags"></i> Select Tags</label>
+                    <select id="tagSelect" class="form-select" multiple size="3">
+                        <option value="">Loading tags...</option>
+                    </select>
+                    <small class="text-muted">Hold Ctrl/Cmd to select multiple (max 20)</small>
+                </div>
+
+                <div class="control-group">
+                    <label for="dateRange"><i class="fas fa-calendar-alt"></i> Date Range</label>
+                    <input type="text" id="dateRange" class="form-control" placeholder="Select date range">
+                </div>
+
+                <div class="control-group">
+                    <label for="modeToggle"><i class="fas fa-toggle-on"></i> Mode</label>
+                    <select id="modeToggle" class="form-select">
+                        <option value="historical">Historical</option>
+                        <option value="live">Live (Last 1 Hour)</option>
+                    </select>
+                </div>
+
+                <div class="control-group d-flex align-items-end">
+                    <button class="btn btn-primary w-100" onclick="loadTrends()">
+                        <i class="fas fa-chart-line"></i> Load Trends
+                    </button>
+                </div>
+            </div>
+
+            <div class="chart-wrapper">
+                <canvas id="trendsChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // ============================================================
+        //  GLOBAL STATE
+        // ============================================================
+        let matrixData = [];
+        let trendsChart = null;
+        let refreshInterval = null;
+        let notificationPermission = 'default';
+        let staleTagsNotified = new Set();
+
+        // ============================================================
+        //  INITIALIZATION
+        // ============================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('[HISTORIAN MONITOR] Initializing dashboard...');
+            
+            // Request notification permission
+            if ('Notification' in window) {
+                Notification.requestPermission().then(permission => {
+                    notificationPermission = permission;
+                    console.log('[NOTIFICATIONS] Permission:', permission);
+                });
+            }
+
+            // Initialize date range picker
+            flatpickr('#dateRange', {
+                mode: 'range',
+                dateFormat: 'Y-m-d H:i',
+                enableTime: true,
+                defaultDate: [
+                    new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
+                    new Date()
+                ],
+                maxDate: new Date()
+            });
+
+            // Initial data load
+            refreshMatrix();
+
+            // Start auto-refresh (every 10 seconds)
+            refreshInterval = setInterval(refreshMatrix, 10000);
+
+            console.log('[HISTORIAN MONITOR] Dashboard initialized - auto-refresh every 10s');
+        });
+
+        // ============================================================
+        //  TAG MATRIX REFRESH
+        // ============================================================
+        async function refreshMatrix() {
+            const indicator = document.getElementById('refreshIndicator');
+            indicator.classList.add('loading');
+
+            try {
+                const response = await fetch('/api/historian/matrix');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                matrixData = data.tags || [];
+
+                console.log(`[MATRIX REFRESH] Loaded ${matrixData.length} tags`);
+
+                // Update summary statistics
+                updateSummaryStats(data);
+
+                // Update matrix table
+                updateMatrixTable(matrixData);
+
+                // Update tag select dropdown
+                updateTagSelect(matrixData);
+
+                // Update refresh indicator
+                document.getElementById('lastRefreshTime').textContent = 
+                    `Updated ${new Date().toLocaleTimeString()}`;
+
+                // Check for stale tags and send notifications
+                checkStaleTagsAndNotify(matrixData);
+
+            } catch (error) {
+                console.error('[MATRIX REFRESH ERROR]', error);
+                document.getElementById('matrixTableBody').innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-danger text-center">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            Error loading data: ${error.message}
+                        </td>
+                    </tr>
+                `;
+            } finally {
+                indicator.classList.remove('loading');
+            }
+        }
+
+        // ============================================================
+        //  UPDATE SUMMARY STATISTICS
+        // ============================================================
+        function updateSummaryStats(data) {
+            const summary = data.summary || {};
+            
+            document.getElementById('totalTagsCount').textContent = 
+                (summary.totalTags || 0).toLocaleString();
+            
+            document.getElementById('activeTagsCount').textContent = 
+                (summary.activeTags || 0).toLocaleString();
+            
+            document.getElementById('staleTagsCount').textContent = 
+                (summary.staleTags || 0).toLocaleString();
+            
+            document.getElementById('totalRowsCount').textContent = 
+                (summary.totalRows || 0).toLocaleString();
+        }
+
+        // ============================================================
+        //  UPDATE MATRIX TABLE
+        // ============================================================
+        function updateMatrixTable(tags) {
+            const tbody = document.getElementById('matrixTableBody');
+            const countBadge = document.getElementById('matrixTagCount');
+
+            if (!tags || tags.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="empty-state">
+                            <i class="fas fa-inbox"></i>
+                            <p>No tags found. Add tag mappings to historian_meta.tag_master table.</p>
+                        </td>
+                    </tr>
+                `;
+                countBadge.textContent = '0 tags';
+                return;
+            }
+
+            countBadge.textContent = `${tags.length} tag${tags.length !== 1 ? 's' : ''}`;
+
+            const rows = tags.map(tag => {
+                const status = determineStatus(tag);
+                const rowClass = status === 'STALE' ? 'stale-tag' : '';
+                
+                const lastUpdate = tag.lastDataTime 
+                    ? new Date(tag.lastDataTime).toLocaleString()
+                    : 'Never';
+
+                const dataRate = tag.rowCount && tag.lastDataTime
+                    ? calculateDataRate(tag.rowCount)
+                    : '-';
+
+                return `
+                    <tr class="${rowClass}" data-tag-id="${tag.tagId}">
+                        <td><code>${tag.tagId}</code></td>
+                        <td>${tag.displayName || '<span class="no-data-cell">N/A</span>'}</td>
+                        <td>
+                            ${tag.mapped 
+                                ? '<i class="fas fa-check-circle text-success"></i> Yes' 
+                                : '<i class="fas fa-times-circle text-secondary"></i> No'}
+                        </td>
+                        <td>${lastUpdate}</td>
+                        <td>${(tag.rowCount || 0).toLocaleString()}</td>
+                        <td>${dataRate}</td>
+                        <td>
+                            <span class="status-badge ${status.toLowerCase()}">
+                                ${status}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            tbody.innerHTML = rows;
+        }
+
+        // ============================================================
+        //  STATUS DETERMINATION
+        // ============================================================
+        function determineStatus(tag) {
+            if (!tag.lastDataTime) {
+                return 'STOPPED';
+            }
+
+            const lastUpdate = new Date(tag.lastDataTime);
+            const now = new Date();
+            const minutesSinceUpdate = (now - lastUpdate) / 1000 / 60;
+
+            if (minutesSinceUpdate > 2) {
+                return 'STALE';
+            }
+
+            return 'OK';
+        }
+
+        // ============================================================
+        //  CALCULATE DATA RATE
+        // ============================================================
+        function calculateDataRate(rowCount) {
+            // Assume 24-hour window
+            const ratePerHour = rowCount / 24;
+            
+            if (ratePerHour < 1) {
+                return `${(rowCount / 24 / 60).toFixed(2)}/min`;
+            } else if (ratePerHour < 60) {
+                return `${ratePerHour.toFixed(1)}/hr`;
+            } else {
+                return `${(ratePerHour / 60).toFixed(1)}/min`;
+            }
+        }
+
+        // ============================================================
+        //  STALE TAG NOTIFICATIONS
+        // ============================================================
+        function checkStaleTagsAndNotify(tags) {
+            if (notificationPermission !== 'granted') return;
+
+            const currentStaleTags = new Set();
+
+            tags.forEach(tag => {
+                if (determineStatus(tag) === 'STALE') {
+                    currentStaleTags.add(tag.tagId);
+
+                    // Only notify once per tag until it recovers
+                    if (!staleTagsNotified.has(tag.tagId)) {
+                        showStaleNotification(tag);
+                        staleTagsNotified.add(tag.tagId);
+                    }
+                }
+            });
+
+            // Reset notification state for recovered tags
+            staleTagsNotified.forEach(tagId => {
+                if (!currentStaleTags.has(tagId)) {
+                    staleTagsNotified.delete(tagId);
+                }
+            });
+        }
+
+        function showStaleNotification(tag) {
+            const notification = new Notification('⚠️ Stale Tag Alert', {
+                body: `Tag "${tag.tagId}" has not updated for >2 minutes`,
+                icon: '/favicon.ico',
+                badge: '/favicon.ico',
+                tag: `stale-${tag.tagId}`,
+                requireInteraction: false,
+                silent: false
+            });
+
+            notification.onclick = () => {
+                window.focus();
+                const row = document.querySelector(`tr[data-tag-id="${tag.tagId}"]`);
+                if (row) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            };
+
+            console.log(`[NOTIFICATION] Stale tag alert: ${tag.tagId}`);
+        }
+
+        // ============================================================
+        //  UPDATE TAG SELECT DROPDOWN
+        // ============================================================
+        function updateTagSelect(tags) {
+            const select = document.getElementById('tagSelect');
+            
+            if (!tags || tags.length === 0) {
+                select.innerHTML = '<option value="">No tags available</option>';
+                return;
+            }
+
+            const options = tags.map(tag => 
+                `<option value="${tag.tagId}">${tag.tagId} (${tag.rowCount || 0} rows)</option>`
+            ).join('');
+
+            select.innerHTML = options;
+        }
+
+        // ============================================================
+        //  TRENDS LOADING
+        // ============================================================
+        async function loadTrends() {
+            const select = document.getElementById('tagSelect');
+            const dateRange = document.getElementById('dateRange').value;
+            const mode = document.getElementById('modeToggle').value;
+
+            // Get selected tags
+            const selectedTags = Array.from(select.selectedOptions).map(opt => opt.value);
+
+            if (selectedTags.length === 0) {
+                alert('Please select at least one tag');
+                return;
+            }
+
+            if (selectedTags.length > 20) {
+                alert('Maximum 20 tags allowed');
+                return;
+            }
+
+            // Determine date range
+            let startTime, endTime;
+            if (mode === 'live') {
+                endTime = new Date();
+                startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // Last 1 hour
+            } else {
+                if (!dateRange) {
+                    alert('Please select a date range');
+                    return;
+                }
+                const dates = dateRange.split(' to ');
+                startTime = new Date(dates[0]);
+                endTime = dates[1] ? new Date(dates[1]) : new Date();
+            }
+
+            console.log(`[TRENDS] Loading ${selectedTags.length} tags from ${startTime} to ${endTime}`);
+
+            try {
+                const requestBody = {
+                    tagIds: selectedTags,
+                    startTime: startTime,
+                    endTime: endTime,
+                    maxPoints: 2000,
+                    sampleSource: 'OPC'
+                };
+
+                const response = await fetch('/api/historian-browser/trends', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const result = await response.json();
+                const data = result.data;
+                
+                if (!data || Object.keys(data).length === 0) {
+                    alert('No trend data available for selected tags and time range');
+                    return;
+                }
+
+                renderTrendsChart(data);
+
+            } catch (error) {
+                console.error('[TRENDS ERROR]', error);
+                alert(`Error loading trends: ${error.message}`);
+            }
+        }
+
+        // ============================================================
+        //  RENDER TRENDS CHART
+        // ============================================================
+        function renderTrendsChart(data) {
+            const ctx = document.getElementById('trendsChart').getContext('2d');
+
+            // Destroy existing chart
+            if (trendsChart) {
+                trendsChart.destroy();
+            }
+
+            // Prepare datasets
+            const datasets = Object.keys(data).map((tagId, index) => {
+                const points = data[tagId];
+                const colors = [
+                    '#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a',
+                    '#fee140', '#30cfd0', '#a8edea', '#ff6b6b', '#48dbfb'
+                ];
+                const color = colors[index % colors.length];
+
+                return {
+                    label: tagId,
+                    data: points.map(p => ({
+                        x: new Date(p.time),
+                        y: p.value
+                    })),
+                    borderColor: color,
+                    backgroundColor: color + '33',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 4
+                };
+            });
+
+            // Create chart
+            trendsChart = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: '#e9ecef',
+                                usePointStyle: true,
+                                padding: 15
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: '#667eea',
+                            borderWidth: 1,
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                displayFormats: {
+                                    hour: 'MMM d, HH:mm',
+                                    minute: 'HH:mm'
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: '#adb5bd'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            beginAtZero: true,
+                            suggestedMin: 0,
+                            suggestedMax: 120,
+                            ticks: {
+                                color: '#adb5bd',
+                                stepSize: 10
+                            }
+                        }
+                    }
+                }
+            });
+
+            console.log(`[CHART] Rendered ${datasets.length} trends`);
+        }
+
+        // ============================================================
+        //  CLEANUP ON PAGE UNLOAD
+        // ============================================================
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

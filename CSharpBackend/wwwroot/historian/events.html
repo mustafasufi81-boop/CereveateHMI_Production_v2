@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Historian - Events Log</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 10px; }
+        .toolbar { background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+        button { padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #1976D2; }
+        select, input { padding: 8px; border: 1px solid #ddd; border-radius: 3px; }
+        table { width: 100%; background: white; border-collapse: collapse; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; font-size: 13px; }
+        th { background: #2196F3; color: white; font-weight: 600; position: sticky; top: 0; }
+        tr:hover { background: #f5f5f5; }
+        .severity-DEBUG { color: #757575; }
+        .severity-INFO { color: #2196F3; }
+        .severity-WARNING { color: #FF9800; font-weight: bold; }
+        .severity-ERROR { color: #f44336; font-weight: bold; }
+        .severity-CRITICAL { color: #B71C1C; font-weight: bold; background: #FFEBEE; }
+        .details-cell { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Historian Events Log</h1>
+        
+        <div class="toolbar">
+            <button onclick="refreshEvents()">🔄 Refresh</button>
+            <select id="filter-event-type" onchange="refreshEvents()">
+                <option value="">All Event Types</option>
+                <option value="unmapped_tag">Unmapped Tag</option>
+                <option value="mapping_conflict">Mapping Conflict</option>
+                <option value="type_mismatch">Type Mismatch</option>
+                <option value="db_retry">DB Retry</option>
+                <option value="spool_write">Spool Write</option>
+                <option value="spool_replay">Spool Replay</option>
+                <option value="mapping_update">Mapping Update</option>
+                <option value="writer_start">Writer Start</option>
+                <option value="writer_stop">Writer Stop</option>
+            </select>
+            <input type="text" id="filter-tag-id" placeholder="Filter by Tag ID" style="width:200px;" onchange="refreshEvents()">
+            <select id="filter-limit" onchange="refreshEvents()">
+                <option value="50">Last 50</option>
+                <option value="100" selected>Last 100</option>
+                <option value="500">Last 500</option>
+                <option value="1000">Last 1000</option>
+            </select>
+            <button onclick="window.location.href='mapping.html'">🏷️ Tag Mapping</button>
+            <button onclick="window.location.href='dashboard.html'">📊 Dashboard</button>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:140px;">Timestamp</th>
+                    <th style="width:120px;">Event Type</th>
+                    <th style="width:100px;">Tag ID</th>
+                    <th style="width:80px;">Severity</th>
+                    <th>Message</th>
+                    <th style="width:150px;">Details</th>
+                </tr>
+            </thead>
+            <tbody id="events-tbody">
+                <tr><td colspan="6" style="text-align:center;padding:40px;color:#999;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const API_BASE = '/api/historian';
+
+        async function refreshEvents() {
+            const eventType = document.getElementById('filter-event-type').value;
+            const tagId = document.getElementById('filter-tag-id').value.trim();
+            const limit = document.getElementById('filter-limit').value;
+
+            try {
+                let url = `${API_BASE}/events?limit=${limit}`;
+                if (eventType) url += `&eventType=${encodeURIComponent(eventType)}`;
+                if (tagId) url += `&tagId=${encodeURIComponent(tagId)}`;
+
+                const res = await fetch(url);
+                const data = await res.json();
+                renderTable(data.events || []);
+            } catch (err) {
+                console.error('Failed to load events:', err);
+                document.getElementById('events-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#f44336;">Error loading events</td></tr>';
+            }
+        }
+
+        function renderTable(events) {
+            const tbody = document.getElementById('events-tbody');
+            if (events.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#999;">No events found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = events.map(e => {
+                const timestamp = new Date(e.event_time).toLocaleString();
+                const detailsText = e.details ? JSON.stringify(JSON.parse(e.details), null, 2) : '';
+                const detailsPreview = e.details ? JSON.stringify(JSON.parse(e.details)).substring(0, 50) + '...' : '-';
+
+                return `
+                    <tr>
+                        <td>${timestamp}</td>
+                        <td><code>${e.event_type}</code></td>
+                        <td>${e.tag_id || '-'}</td>
+                        <td class="severity-${e.severity}">${e.severity}</td>
+                        <td>${e.message}</td>
+                        <td class="details-cell" title="${detailsText}" onclick="alert('${detailsText.replace(/'/g, "\\'")}')">
+                            ${detailsPreview}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Auto-refresh every 10 seconds
+        refreshEvents();
+        setInterval(refreshEvents, 10000);
+    </script>
+</body>
+</html>

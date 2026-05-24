@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cereveate Historian Query Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #1a237e;
+            --secondary-color: #0d47a1;
+            --accent-color: #00bcd4;
+            --success-color: #4caf50;
+            --warning-color: #ff9800;
+            --danger-color: #f44336;
+            --dark-bg: #0a0e27;
+            --card-bg: #1a1f3a;
+            --text-light: #e0e0e0;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--dark-bg) 0%, var(--primary-color) 100%);
+            color: var(--text-light);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(26, 35, 126, 0.95) !important;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 20px rgba(0, 188, 212, 0.3);
+        }
+
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+            color: var(--accent-color) !important;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid rgba(0, 188, 212, 0.3);
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 188, 212, 0.4);
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+            color: white;
+            font-weight: bold;
+            border-radius: 15px 15px 0 0 !important;
+            border-bottom: 2px solid var(--accent-color);
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 20px;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--accent-color);
+            text-shadow: 0 0 10px rgba(0, 188, 212, 0.5);
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: #b0b0b0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-color), var(--secondary-color));
+            border: none;
+            border-radius: 8px;
+            padding: 10px 25px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(0, 188, 212, 0.6);
+        }
+
+        .table {
+            color: var(--text-light);
+        }
+
+        .table thead {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        .table tbody tr {
+            background: rgba(26, 31, 58, 0.6);
+            transition: background 0.3s ease;
+        }
+
+        .table tbody tr:hover {
+            background: rgba(0, 188, 212, 0.2);
+        }
+
+        .badge {
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin: 20px 0;
+        }
+
+        .form-control, .form-select {
+            background: rgba(26, 31, 58, 0.8);
+            border: 1px solid rgba(0, 188, 212, 0.3);
+            color: var(--text-light);
+            border-radius: 8px;
+        }
+
+        .form-control:focus, .form-select:focus {
+            background: rgba(26, 31, 58, 0.9);
+            border-color: var(--accent-color);
+            color: var(--text-light);
+            box-shadow: 0 0 10px rgba(0, 188, 212, 0.3);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(0, 188, 212, 0.3);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(0, 188, 212, 0.1);
+        }
+
+        .metric-label {
+            color: #b0b0b0;
+        }
+
+        .metric-value {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-database"></i> Cereveate Historian Query Tool
+            </a>
+            <span class="navbar-text">
+                <span class="badge bg-success pulse">
+                    <i class="fas fa-circle"></i> Connected
+                </span>
+            </span>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Statistics Dashboard -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="totalRecords">--</div>
+                    <div class="stat-label">Total Records</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="recordsPerSecond">--</div>
+                    <div class="stat-label">Records/Second</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="uniqueTags">--</div>
+                    <div class="stat-label">Active Tags</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="tableSize">--</div>
+                    <div class="stat-label">Database Size</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Tabs -->
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#overview">
+                            <i class="fas fa-chart-line"></i> Overview
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#query">
+                            <i class="fas fa-search"></i> Query Data
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#performance">
+                            <i class="fas fa-tachometer-alt"></i> Performance
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#compression">
+                            <i class="fas fa-compress"></i> Compression
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content">
+                    <!-- Overview Tab -->
+                    <div class="tab-pane fade show active" id="overview">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5><i class="fas fa-chart-area"></i> Real-Time Insertion Rate</h5>
+                                <div class="chart-container">
+                                    <canvas id="insertionRateChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h5><i class="fas fa-list"></i> Per-Tag Statistics</h5>
+                                <div style="max-height: 300px; overflow-y: auto;">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Tag ID</th>
+                                                <th>Records</th>
+                                                <th>Rate (rec/s)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="perTagStats">
+                                            <tr><td colspan="3" class="text-center">Loading...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Query Tab -->
+                    <div class="tab-pane fade" id="query">
+                        <div class="alert alert-info mb-3">
+                            <i class="fas fa-info-circle"></i> <strong>How to Query:</strong>
+                            Select tags (Ctrl+Click for multiple), choose quick time range OR set custom dates, then click Execute Query
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label><strong>Tag Selection</strong></label>
+                                <select id="tagSelect" class="form-select" multiple size="10">
+                                    <option value="">Loading tags...</option>
+                                </select>
+                                <small class="text-muted">Ctrl+Click to select multiple</small>
+                            </div>
+                            <div class="col-md-9">
+                                <!-- Quick Time Range Buttons -->
+                                <div class="mb-3">
+                                    <label><strong>Quick Time Range</strong></label>
+                                    <div class="btn-group d-block" role="group">
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="setTimeRange(5, 'minutes')">
+                                            <i class="fas fa-clock"></i> Last 5 Min
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="setTimeRange(15, 'minutes')">
+                                            <i class="fas fa-clock"></i> Last 15 Min
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="setTimeRange(1, 'hours')">
+                                            <i class="fas fa-clock"></i> Last 1 Hour
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="setTimeRange(6, 'hours')">
+                                            <i class="fas fa-clock"></i> Last 6 Hours
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="setTimeRange(24, 'hours')">
+                                            <i class="fas fa-calendar-day"></i> Last 24 Hours
+                                        </button>
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="setTimeRange(7, 'days')">
+                                            <i class="fas fa-calendar-week"></i> Last 7 Days
+                                        </button>
+                                        <button type="button" class="btn btn-outline-warning btn-sm" onclick="clearTimeRange()">
+                                            <i class="fas fa-infinity"></i> All Time
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Custom Date Range -->
+                                <div class="row mb-3">
+                                    <div class="col-md-4">
+                                        <label>Start Time (Optional)</label>
+                                        <input type="datetime-local" id="startTime" class="form-control">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label>End Time (Optional)</label>
+                                        <input type="datetime-local" id="endTime" class="form-control">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label>Records per Page</label>
+                                        <input type="number" id="limitInput" class="form-control" value="4000" min="100" max="4000" placeholder="Records per page (100-4000)">
+                                        <small class="text-info">💡 4000 records per page (optimized)</small>
+                                    </div>
+                                </div>
+                                
+                                <!-- Action Buttons -->
+                                <button class="btn btn-primary btn-lg" onclick="executeQuery()">
+                                    <i class="fas fa-play-circle"></i> Execute Query
+                                </button>
+                                <button class="btn btn-success" onclick="exportData()">
+                                    <i class="fas fa-file-csv"></i> Export CSV
+                                </button>
+                                <button class="btn btn-secondary" onclick="clearResults()">
+                                    <i class="fas fa-eraser"></i> Clear Results
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Results Summary -->
+                        <div id="queryResultsSummary" class="alert alert-secondary" style="display:none;">
+                            <i class="fas fa-info-circle"></i> <span id="querySummaryText"></span>
+                        </div>
+                        
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Timestamp</th>
+                                        <th>Tag ID</th>
+                                        <th>Value</th>
+                                        <th>Quality</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="queryResults">
+                                    <tr><td colspan="5" class="text-center">Execute query to see results</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Performance Tab -->
+                    <div class="tab-pane fade" id="performance">
+                        <h5><i class="fas fa-rocket"></i> Industrial-Grade Performance Tests</h5>
+                        <button class="btn btn-primary mb-3" onclick="runPerformanceTests()">
+                            <i class="fas fa-play"></i> Run Performance Tests
+                        </button>
+                        <div id="performanceResults"></div>
+                    </div>
+
+                    <!-- Compression Tab -->
+                    <div class="tab-pane fade" id="compression">
+                        <h5><i class="fas fa-chart-pie"></i> Data Compression Analysis</h5>
+                        <p>Demonstrates how historian stores only value changes (deadband filtering) instead of all samples</p>
+                        <div class="chart-container">
+                            <canvas id="compressionChart"></canvas>
+                        </div>
+                        <div id="compressionStats"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let insertionChart, compressionChart;
+        let queryData = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            loadTags();
+            loadStats();
+            
+            // Auto-refresh every 2 seconds
+            setInterval(loadStats, 2000);
+            
+            // Set default: Last 1 hour
+            setTimeRange(1, 'hours');
+        });
+
+        function formatDateTime(date) {
+            // Format to local time: YYYY-MM-DDTHH:MM (for datetime-local input)
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        }
+
+        function formatTimestampWithMs(timestamp) {
+            // Format: YYYY-MM-DD HH:MM:SS.mmmmmm (with FULL MICROSECONDS - 6 digits)
+            // Extract microseconds directly from ISO string to preserve full precision
+            let microseconds = '000000';
+            
+            // If timestamp is ISO format (e.g., "2026-02-09T06:30:00.003155+05:30")
+            if (typeof timestamp === 'string' && timestamp.includes('.')) {
+                const decimalPart = timestamp.split('.')[1];
+                if (decimalPart) {
+                    // Extract ALL 6 digits (microseconds) and pad if needed
+                    const micros = decimalPart.split('+')[0].split('-')[0].split('Z')[0];
+                    microseconds = micros.padEnd(6, '0');
+                }
+            }
+            
+            const date = new Date(timestamp);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${microseconds}`;
+        }
+
+        function setTimeRange(value, unit) {
+            const now = new Date();
+            let millisToSubtract = 0;
+            
+            switch(unit) {
+                case 'minutes':
+                    millisToSubtract = value * 60 * 1000;
+                    break;
+                case 'hours':
+                    millisToSubtract = value * 60 * 60 * 1000;
+                    break;
+                case 'days':
+                    millisToSubtract = value * 24 * 60 * 60 * 1000;
+                    break;
+            }
+            
+            const startDate = new Date(now.getTime() - millisToSubtract);
+            
+            document.getElementById('startTime').value = formatDateTime(startDate);
+            document.getElementById('endTime').value = formatDateTime(now);
+            
+            console.log(`Time range set: ${startDate.toLocaleString()} to ${now.toLocaleString()} (Last ${value} ${unit})`);
+        }
+
+        function clearTimeRange() {
+            document.getElementById('startTime').value = '';
+            document.getElementById('endTime').value = '';
+            console.log('Time range cleared (All Time mode)');
+        }
+
+        function clearResults() {
+            document.getElementById('queryResults').innerHTML = 
+                '<tr><td colspan="4" class="text-center">Execute query to see results</td></tr>';
+            document.getElementById('queryResultsSummary').style.display = 'none';
+            queryData = [];
+        }
+
+        function initCharts() {
+            // Insertion Rate Chart
+            const ctx1 = document.getElementById('insertionRateChart').getContext('2d');
+            insertionChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Records/Second',
+                        data: [],
+                        borderColor: '#00bcd4',
+                        backgroundColor: 'rgba(0, 188, 212, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+
+            // Compression Chart
+            const ctx2 = document.getElementById('compressionChart').getContext('2d');
+            compressionChart = new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Compression Ratio',
+                        data: [],
+                        backgroundColor: '#4caf50'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        async function loadTags() {
+            try {
+                const response = await fetch('/api/tags/list');
+                const data = await response.json();
+                
+                if (!data.success) {
+                    console.error('Failed to load tags:', data.error);
+                    return;
+                }
+                
+                const select = document.getElementById('tagSelect');
+                select.innerHTML = '<option value="" disabled>-- Select one or more tags (Ctrl+Click) --</option>';
+                
+                data.tags.forEach(tag => {
+                    const option = document.createElement('option');
+                    option.value = tag.tag_id;
+                    option.textContent = `${tag.tag_id} (${tag.data_type || 'N/A'})`;
+                    select.appendChild(option);
+                });
+                
+                console.log(`Loaded ${data.count} tags`);
+            } catch (error) {
+                console.error('Error loading tags:', error);
+                const select = document.getElementById('tagSelect');
+                select.innerHTML = '<option value="" disabled>Error loading tags</option>';
+            }
+        }
+
+        async function loadStats() {
+            try {
+                // Overall stats
+                const totalResp = await fetch('/api/stats/total');
+                const totalData = await totalResp.json();
+                
+                document.getElementById('totalRecords').textContent = 
+                    totalData.total.total_records.toLocaleString();
+                document.getElementById('uniqueTags').textContent = 
+                    totalData.total.unique_tags;
+                document.getElementById('tableSize').textContent = 
+                    totalData.total.table_size;
+                
+                // Insertion rate
+                const rateResp = await fetch('/api/stats/insertion_rate');
+                const rateData = await rateResp.json();
+                
+                // Handle both numeric and string values from API
+                const rps = typeof rateData.overall.records_per_second === 'string' 
+                    ? parseFloat(rateData.overall.records_per_second) 
+                    : rateData.overall.records_per_second;
+                
+                document.getElementById('recordsPerSecond').textContent = 
+                    rps.toFixed(2);
+                
+                // Update per-tag stats table
+                const tbody = document.getElementById('perTagStats');
+                tbody.innerHTML = '';
+                rateData.per_tag.slice(0, 10).forEach(tag => {
+                    // Handle both numeric and string values
+                    const tagRps = typeof tag.records_per_second === 'string'
+                        ? parseFloat(tag.records_per_second)
+                        : tag.records_per_second;
+                    
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${tag.tag_id}</td>
+                            <td>${tag.record_count}</td>
+                            <td>${tagRps.toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+                
+                // Update insertion chart
+                insertionChart.data.labels.push(new Date().toLocaleTimeString());
+                insertionChart.data.datasets[0].data.push(rps); // Use parsed value
+                
+                // Keep last 20 points
+                if (insertionChart.data.labels.length > 20) {
+                    insertionChart.data.labels.shift();
+                    insertionChart.data.datasets[0].data.shift();
+                }
+                
+                insertionChart.update();
+                
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function executeQuery() {
+            const tagSelect = document.getElementById('tagSelect');
+            const selectedTags = Array.from(tagSelect.selectedOptions).map(opt => opt.value);
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+            const limit = document.getElementById('limitInput').value;
+            
+            // Validation
+            if (selectedTags.length === 0) {
+                alert('Please select at least one tag');
+                return;
+            }
+            
+            // Show loading message
+            const tbody = document.getElementById('queryResults');
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center"><i class="fas fa-spinner fa-spin"></i> Executing query...</td></tr>';
+            
+            // Hide previous summary
+            document.getElementById('queryResultsSummary').style.display = 'none';
+            
+            const params = new URLSearchParams();
+            selectedTags.forEach(tag => params.append('tag_id[]', tag));
+            if (startTime) params.append('start_time', startTime);
+            if (endTime) params.append('end_time', endTime);
+            params.append('page', window.currentPage || 1);
+            params.append('page_size', limit);
+            
+            try {
+                const queryStart = performance.now();
+                const response = await fetch(`/api/data/query?${params}`);
+                const data = await response.json();
+                const queryTime = (performance.now() - queryStart).toFixed(0);
+                
+                if (!data.success) {
+                    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Error: ${data.error}</td></tr>`;
+                    return;
+                }
+                
+                queryData = data.data;
+                tbody.innerHTML = '';
+                
+                // Show summary with PAGINATION info
+                const summaryDiv = document.getElementById('queryResultsSummary');
+                const timeRangeText = (startTime && endTime) 
+                    ? `from ${new Date(startTime).toLocaleString()} to ${new Date(endTime).toLocaleString()}`
+                    : 'for all time';
+                
+                const paginationInfo = `Page <strong>${data.page}</strong> of <strong>${data.total_pages}</strong> 
+                    (<strong>${data.count}</strong> of <strong>${data.total_records}</strong> total records)`;
+                
+                document.getElementById('querySummaryText').innerHTML = 
+                    `${paginationInfo} for <strong>${selectedTags.length}</strong> tag(s) ${timeRangeText} 
+                    <span class="badge bg-success">Query time: ${queryTime}ms</span>`;
+                summaryDiv.style.display = 'block';
+                
+                // Add pagination controls
+                let paginationHTML = '<div class="btn-group mt-2">';
+                if (data.has_prev) {
+                    paginationHTML += `<button class="btn btn-sm btn-outline-primary" onclick="goToPage(${data.page - 1})">← Previous</button>`;
+                }
+                paginationHTML += `<button class="btn btn-sm btn-primary" disabled>Page ${data.page}/${data.total_pages}</button>`;
+                if (data.has_next) {
+                    paginationHTML += `<button class="btn btn-sm btn-outline-primary" onclick="goToPage(${data.page + 1})">Next →</button>`;
+                }
+                paginationHTML += '</div>';
+                document.getElementById('querySummaryText').innerHTML += paginationHTML;
+                
+                if (data.data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-warning">No data found for selected criteria. Try a different time range or tags.</td></tr>';
+                } else {
+                    // Build HTML string first, then insert ONCE (prevents O(n²) complexity)
+                    let tableHTML = '';
+                    // Calculate starting row number for this page (continuous count across pages)
+                    const startRowNum = (data.page - 1) * data.page_size + 1;
+                    data.data.forEach((row, index) => {
+                        const rowNum = startRowNum + index;  // Continuous count: Page 1: 1-4000, Page 2: 4001-8000, etc.
+                        
+                        // Format value with proper decimal places
+                        const formattedValue = row.value !== null && row.value !== undefined 
+                            ? (typeof row.value === 'number' ? row.value.toFixed(3) : row.value)
+                            : 'N/A';
+                        
+                        // Quality badge color - handle both string ('G','B') and numeric (192=GOOD, 0=BAD)
+                        const qualityClass = (row.quality === 'G' || row.quality === 192) ? 'bg-success' : 
+                                           (row.quality === 'B' || row.quality === 0) ? 'bg-danger' : 'bg-warning';
+                        const qualityText = (row.quality === 192) ? 'GOOD' : (row.quality === 0) ? 'BAD' : row.quality;
+                        
+                        tableHTML += `
+                            <tr>
+                                <td><strong>${rowNum}</strong></td>
+                                <td>${formatTimestampWithMs(row.timestamp)}</td>
+                                <td><code>${row.tag_id}</code></td>
+                                <td><strong>${formattedValue}</strong></td>
+                                <td><span class="badge ${qualityClass}">${qualityText}</span></td>
+                            </tr>
+                        `;
+                    });
+                    tbody.innerHTML = tableHTML;
+                    
+                    console.log(`Query completed: ${data.count} records (page ${data.page}/${data.total_pages}) in ${queryTime}ms`);
+                }
+            } catch (error) {
+                console.error('Error executing query:', error);
+                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Query failed: ${error.message}</td></tr>`;
+            }
+        }
+
+        function goToPage(page) {
+            window.currentPage = page;
+            executeQuery();
+        }
+
+        function exportData() {
+            if (queryData.length === 0) {
+                alert('No data to export. Execute a query first.');
+                return;
+            }
+            
+            // CSV Header
+            let csv = '#,Timestamp,Tag ID,Value,Quality\n';
+            
+            // CSV Data
+            queryData.forEach((row, index) => {
+                const timestamp = formatTimestampWithMs(row.timestamp);
+                const value = row.value !== null && row.value !== undefined ? row.value : '';
+                csv += `${index + 1},${timestamp},${row.tag_id},${value},${row.quality}\n`;
+            });
+            
+            // Create download
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Filename with timestamp and record count
+            const filename = `historian_${queryData.length}records_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+            a.download = filename;
+            a.click();
+            
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            
+            console.log(`Exported ${queryData.length} records to ${filename}`);
+        }
+
+        async function runPerformanceTests() {
+            const resultsDiv = document.getElementById('performanceResults');
+            resultsDiv.innerHTML = '<div class="text-center"><div class="loading-spinner"></div><p>Running tests...</p></div>';
+            
+            try {
+                const response = await fetch('/api/demo/performance');
+                const data = await response.json();
+                
+                resultsDiv.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6>Query 1M Records</h6>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Time:</span>
+                                        <span class="metric-value">${data.performance_tests.query_1m_records.time_ms} ms</span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Records:</span>
+                                        <span class="metric-value">${data.performance_tests.query_1m_records.records.toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6>Aggregation (1 Hour)</h6>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Time:</span>
+                                        <span class="metric-value">${data.performance_tests.aggregation_1hour.time_ms} ms</span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Tags Processed:</span>
+                                        <span class="metric-value">${data.performance_tests.aggregation_1hour.tags_processed}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6>Compression (24 Hours)</h6>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Time:</span>
+                                        <span class="metric-value">${data.performance_tests.compression_24hours.time_ms} ms</span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Compressed Points:</span>
+                                        <span class="metric-value">${data.performance_tests.compression_24hours.compressed_points}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h6>Real-Time Query</h6>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Time:</span>
+                                        <span class="metric-value">${data.performance_tests.realtime_query.time_ms} ms</span>
+                                    </div>
+                                    <div class="metric-row">
+                                        <span class="metric-label">Records:</span>
+                                        <span class="metric-value">${data.performance_tests.realtime_query.records}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert alert-success mt-3">
+                        <strong>Conclusion:</strong> ${data.conclusion}
+                    </div>
+                `;
+            } catch (error) {
+                resultsDiv.innerHTML = '<div class="alert alert-danger">Error running tests</div>';
+                console.error('Error:', error);
+            }
+        }
+
+        // Load compression stats when tab is shown
+        document.querySelector('a[href="#compression"]').addEventListener('shown.bs.tab', async function() {
+            try {
+                const response = await fetch('/api/stats/compression');
+                const data = await response.json();
+                
+                compressionChart.data.labels = data.data.map(d => d.tag_id).slice(0, 10);
+                compressionChart.data.datasets[0].data = data.data.map(d => d.compression_ratio).slice(0, 10);
+                compressionChart.update();
+                
+                const statsDiv = document.getElementById('compressionStats');
+                statsDiv.innerHTML = '<h6 class="mt-3">Compression Details</h6>';
+                data.data.slice(0, 10).forEach(tag => {
+                    statsDiv.innerHTML += `
+                        <div class="card mb-2">
+                            <div class="card-body">
+                                <strong>${tag.tag_id}</strong>
+                                <div class="metric-row">
+                                    <span class="metric-label">Total Records:</span>
+                                    <span class="metric-value">${tag.total_records}</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Compression Ratio:</span>
+                                    <span class="metric-value">${tag.compression_ratio}:1</span>
+                                </div>
+                                <div class="metric-row">
+                                    <span class="metric-label">Storage Saved:</span>
+                                    <span class="metric-value">${tag.storage_saved_percent}%</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (error) {
+                console.error('Error loading compression stats:', error);
+            }
+        });
+    </script>
+</body>
+</html>

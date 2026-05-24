@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pivot Table API Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a1628 0%, #1a1a2e 100%);
+            color: #e0e0e0;
+            padding: 40px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: rgba(15, 52, 96, 0.3);
+            padding: 30px;
+            border-radius: 12px;
+            border: 2px solid rgba(0, 212, 255, 0.3);
+        }
+        h1 {
+            color: #00d4ff;
+            text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+        }
+        button {
+            background: linear-gradient(135deg, #00d4ff, #00ff88);
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            color: #0a1628;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 20px 0;
+        }
+        button:hover {
+            transform: scale(1.05);
+        }
+        .result {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+        }
+        .success { color: #00ff88; }
+        .error { color: #ff6b6b; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px;
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            text-align: left;
+        }
+        th {
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+            font-weight: 600;
+        }
+        tr:nth-child(even) {
+            background: rgba(0, 212, 255, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Pivot Table Statistics API Test</h1>
+        <p>This test verifies the statistics API endpoint used by the Pivot Table feature.</p>
+        
+        <button onclick="testStatisticsAPI()">▶️ Test Statistics API</button>
+        
+        <div id="result" class="result" style="display: none;"></div>
+        <div id="table-container"></div>
+    </div>
+
+    <script>
+        async function testStatisticsAPI() {
+            const resultDiv = document.getElementById('result');
+            const tableContainer = document.getElementById('table-container');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '⏳ Testing API endpoint...';
+            tableContainer.innerHTML = '';
+
+            // Sample data matching what the pivot table would send
+            const testData = {
+                data: [
+                    {"Timestamp": "2025-01-01 00:00:00", "Random.Real4": 100.5, "Random.Real8": 200.3, "Random.Int2": 150},
+                    {"Timestamp": "2025-01-01 00:01:00", "Random.Real4": 102.3, "Random.Real8": 198.7, "Random.Int2": 148},
+                    {"Timestamp": "2025-01-01 00:02:00", "Random.Real4": 99.8, "Random.Real8": 202.1, "Random.Int2": 152},
+                    {"Timestamp": "2025-01-01 00:03:00", "Random.Real4": 101.2, "Random.Real8": 199.5, "Random.Int2": 149},
+                    {"Timestamp": "2025-01-01 00:04:00", "Random.Real4": 98.9, "Random.Real8": 201.8, "Random.Int2": 151},
+                ],
+                tags: ["Random.Real4", "Random.Real8", "Random.Int2"]
+            };
+
+            try {
+                const response = await fetch('http://localhost:5001/api/v1/analytics/statistics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testData)
+                });
+
+                if (response.ok) {
+                    const statsData = await response.json();
+                    
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ API Test PASSED\n\nStatus: ${response.status}\nResponse received successfully!`;
+
+                    // Create pivot table
+                    let html = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    ${testData.tags.map(tag => `<th>${tag}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    const metrics = ['Count', 'Mean', 'Min', 'Max', 'Std Dev', 'Sum'];
+                    
+                    metrics.forEach(metric => {
+                        html += '<tr><td><strong>' + metric + '</strong></td>';
+                        
+                        testData.tags.forEach(tag => {
+                            const stats = statsData[tag];
+                            let value = 'N/A';
+
+                            if (stats) {
+                                switch (metric) {
+                                    case 'Count':
+                                        value = stats.count || 0;
+                                        break;
+                                    case 'Mean':
+                                        value = (typeof stats.mean === 'number' && !isNaN(stats.mean)) ? stats.mean.toFixed(2) : 'N/A';
+                                        break;
+                                    case 'Min':
+                                        value = (typeof stats.min === 'number' && !isNaN(stats.min)) ? stats.min.toFixed(2) : 'N/A';
+                                        break;
+                                    case 'Max':
+                                        value = (typeof stats.max === 'number' && !isNaN(stats.max)) ? stats.max.toFixed(2) : 'N/A';
+                                        break;
+                                    case 'Std Dev':
+                                        value = (typeof stats.std_dev === 'number' && !isNaN(stats.std_dev)) ? stats.std_dev.toFixed(2) : 'N/A';
+                                        break;
+                                    case 'Sum':
+                                        if (typeof stats.mean === 'number' && typeof stats.count === 'number' && !isNaN(stats.mean) && !isNaN(stats.count)) {
+                                            const sum = stats.mean * stats.count;
+                                            value = sum.toFixed(2);
+                                        }
+                                        break;
+                                }
+                            }
+
+                            html += `<td>${value}</td>`;
+                        });
+                        
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table>';
+                    tableContainer.innerHTML = html;
+
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ API Test FAILED\n\nStatus: ${response.status}\nError: ${await response.text()}`;
+                }
+
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ API Test FAILED\n\nError: ${error.message}\n\nMake sure the Flask server is running on port 5001`;
+            }
+        }
+    </script>
+</body>
+</html>

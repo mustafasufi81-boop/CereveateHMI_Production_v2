@@ -1,0 +1,129 @@
+# ============================================================================
+# Windows Service Configuration for HMI Flask Application
+# Uses NSSM (Non-Sucking Service Manager)
+# ============================================================================
+
+# Installation Instructions:
+# 1. Download NSSM: https://nssm.cc/download
+# 2. Extract nssm.exe to a folder (e.g., C:\Tools\nssm)
+# 3. Open PowerShell or CMD as Administrator
+# 4. Navigate to HMI directory
+# 5. Run: install_service_windows.bat
+
+# ============================================================================
+# NSSM Service Parameters
+# ============================================================================
+
+Service Name: HMI_Flask_Service
+Display Name: HMI Flask Application Service
+Description: Industrial HMI Flask Application with Real-Time Data Streaming
+
+# Application Path
+Application: C:\Shakil\DJangoProjects\NEW_HMI\HMI\venv\Scripts\python.exe
+App Directory: C:\Shakil\DJangoProjects\NEW_HMI\HMI
+App Parameters: -m waitress --host=0.0.0.0 --port=6001 --threads=6 wsgi:application
+
+# Startup Type: Automatic, Manual, Disabled
+Startup Type: Automatic
+
+# Service Recovery Options
+On Failure - First: Restart
+On Failure - Second: Restart
+On Failure - Subsequent: Restart
+Reset Fail Count After: 86400 seconds (24 hours)
+Restart Delay: 60000 ms (1 minute)
+
+# Environment Variables
+HMI_ENV=production
+PYTHONPATH=C:\Shakil\DJangoProjects\NEW_HMI\HMI
+
+# I/O Redirection
+AppStdout: C:\Shakil\DJangoProjects\NEW_HMI\HMI\logs\service-stdout.log
+AppStderr: C:\Shakil\DJangoProjects\NEW_HMI\HMI\logs\service-stderr.log
+
+# Log Rotation
+AppRotateFiles: 1
+AppRotateOnline: 1
+AppRotateSeconds: 86400
+AppRotateBytes: 10485760
+
+# Process Priority: Realtime, High, Above Normal, Normal, Below Normal, Idle
+Process Priority: Normal
+
+# Exit Actions
+AppExit: Default - Restart application
+
+# ============================================================================
+# PowerShell Installation Script (Save as install_service_windows.ps1)
+# ============================================================================
+
+# Check if running as Administrator
+if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
+{
+    Write-Warning "Please run this script as Administrator!"
+    Break
+}
+
+# Configuration
+$serviceName = "HMI_Flask_Service"
+$nssmPath = "C:\Tools\nssm\nssm.exe"  # Change to your NSSM path
+$hmiPath = "C:\Shakil\DJangoProjects\NEW_HMI\HMI"
+$pythonExe = "$hmiPath\venv\Scripts\python.exe"
+$logPath = "$hmiPath\logs"
+
+# Check if NSSM exists
+if (-not (Test-Path $nssmPath)) {
+    Write-Error "NSSM not found at $nssmPath"
+    Write-Host "Download NSSM from https://nssm.cc/download"
+    Break
+}
+
+# Check if Python virtual environment exists
+if (-not (Test-Path $pythonExe)) {
+    Write-Error "Python virtual environment not found at $pythonExe"
+    Write-Host "Run deploy_windows.bat first to create virtual environment"
+    Break
+}
+
+# Create logs directory if not exists
+if (-not (Test-Path $logPath)) {
+    New-Item -ItemType Directory -Path $logPath
+}
+
+# Remove existing service if exists
+$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if ($existingService) {
+    Write-Host "Stopping and removing existing service..."
+    & $nssmPath stop $serviceName
+    & $nssmPath remove $serviceName confirm
+    Start-Sleep -Seconds 2
+}
+
+# Install service
+Write-Host "Installing HMI Flask Service..."
+& $nssmPath install $serviceName $pythonExe "-m" "waitress" "--host=0.0.0.0" "--port=6001" "--threads=6" "wsgi:application"
+
+# Set service parameters
+& $nssmPath set $serviceName DisplayName "HMI Flask Application Service"
+& $nssmPath set $serviceName Description "Industrial HMI Flask Application with Real-Time Data Streaming"
+& $nssmPath set $serviceName AppDirectory $hmiPath
+& $nssmPath set $serviceName AppEnvironmentExtra "HMI_ENV=production" "PYTHONPATH=$hmiPath"
+& $nssmPath set $serviceName AppStdout "$logPath\service-stdout.log"
+& $nssmPath set $serviceName AppStderr "$logPath\service-stderr.log"
+& $nssmPath set $serviceName AppRotateFiles 1
+& $nssmPath set $serviceName AppRotateOnline 1
+& $nssmPath set $serviceName AppRotateSeconds 86400
+& $nssmPath set $serviceName AppRotateBytes 10485760
+
+# Set startup type to automatic
+& $nssmPath set $serviceName Start SERVICE_AUTO_START
+
+# Set recovery options
+& $nssmPath set $serviceName AppExit Default Restart
+& $nssmPath set $serviceName AppRestartDelay 60000
+
+Write-Host "`nService installed successfully!"
+Write-Host "`nTo start the service, run:"
+Write-Host "  net start $serviceName"
+Write-Host "`nTo check service status:"
+Write-Host "  sc query $serviceName"

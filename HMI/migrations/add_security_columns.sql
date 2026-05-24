@@ -1,0 +1,5 @@
+ALTER TABLE historian_meta.users 
+ADD COLUMN IF NOT EXISTS backup_key_hash TEXT,
+ADD COLUMN IF NOT EXISTS backup_key_expiry TIMESTAMP,
+ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER DEFAULT 0,
+ADD COLUMN IF NOT EXISTS lockout_until TIMESTAMP;

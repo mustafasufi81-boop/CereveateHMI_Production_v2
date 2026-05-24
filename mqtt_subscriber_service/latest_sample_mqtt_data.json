@@ -1,0 +1,139 @@
+{
+  "timestamp": "2026-01-06T08:34:47.123Z",
+  "publishIntervalMs": 1000,
+  "tagCount": 32,
+  "totalSamples": 160,
+  "values": [
+    {
+      "plcId": "Rockwel_PLC_001",
+      "tag": "Blastfurnace_Tuyer1_Pressure",
+      "address": "Blastfurnace_Tuyer1_Pressure",
+      "dataType": "float",
+      "scanRateMs": 200,
+      "sampleCount": 5,
+      "samples": [
+        { "value": 22.21, "quality": "Good", "timestamp": "2026-01-06T08:34:46.200Z" },
+        { "value": 22.22, "quality": "Good", "timestamp": "2026-01-06T08:34:46.400Z" },
+        { "value": 22.23, "quality": "Good", "timestamp": "2026-01-06T08:34:46.600Z" },
+        { "value": 22.22, "quality": "Good", "timestamp": "2026-01-06T08:34:46.800Z" },
+        { "value": 22.23, "quality": "Good", "timestamp": "2026-01-06T08:34:47.000Z" }
+      ],
+      "value": 22.23,
+      "quality": "Good",
+      "timestamp": "2026-01-06T08:34:47.000Z"
+    },
+    {
+      "plcId": "Rockwel_PLC_001",
+      "tag": "Boiler_Inlet_Pressure",
+      "address": "Boiler_Inlet_Pressure",
+      "dataType": "float",
+      "scanRateMs": 200,
+      "sampleCount": 5,
+      "samples": [
+        { "value": 7.89, "quality": "Good", "timestamp": "2026-01-06T08:34:46.200Z" },
+        { "value": 7.90, "quality": "Good", "timestamp": "2026-01-06T08:34:46.400Z" },
+        { "value": 7.91, "quality": "Good", "timestamp": "2026-01-06T08:34:46.600Z" },
+        { "value": 7.90, "quality": "Good", "timestamp": "2026-01-06T08:34:46.800Z" },
+        { "value": 7.91, "quality": "Good", "timestamp": "2026-01-06T08:34:47.000Z" }
+      ],
+      "value": 7.91,
+      "quality": "Good",
+      "timestamp": "2026-01-06T08:34:47.000Z"
+    },
+    {
+      "plcId": "Rockwel_PLC_001",
+      "tag": "Boiler_Inlet_Temp",
+      "address": "Boiler_Inlet_Temp",
+      "dataType": "float",
+      "scanRateMs": 200,
+      "sampleCount": 5,
+      "samples": [
+        { "value": 70.95, "quality": "Good", "timestamp": "2026-01-06T08:34:46.200Z" },
+        { "value": 70.96, "quality": "Good", "timestamp": "2026-01-06T08:34:46.400Z" },
+        { "value": 70.97, "quality": "Good", "timestamp": "2026-01-06T08:34:46.600Z" },
+        { "value": 70.98, "quality": "Good", "timestamp": "2026-01-06T08:34:46.800Z" },
+        { "value": 70.98, "quality": "Good", "timestamp": "2026-01-06T08:34:47.000Z" }
+      ],
+      "value": 70.98,
+      "quality": "Good",
+      "timestamp": "2026-01-06T08:34:47.000Z"
+    },
+    {
+      "plcId": "Rockwel_PLC_001",
+      "tag": "Cooling_FAN_SPEED",
+      "address": "Cooling_FAN_SPEED",
+      "dataType": "float",
+      "scanRateMs": 200,
+      "sampleCount": 5,
+      "samples": [
+        { "value": 65.85, "quality": "Good", "timestamp": "2026-01-06T08:34:46.200Z" },
+        { "value": 65.86, "quality": "Good", "timestamp": "2026-01-06T08:34:46.400Z" },
+        { "value": 65.87, "quality": "Good", "timestamp": "2026-01-06T08:34:46.600Z" },
+        { "value": 65.88, "quality": "Good", "timestamp": "2026-01-06T08:34:46.800Z" },
+        { "value": 65.88, "quality": "Good", "timestamp": "2026-01-06T08:34:47.000Z" }
+      ],
+      "value": 65.88,
+      "quality": "Good",
+      "timestamp": "2026-01-06T08:34:47.000Z"
+    }
+  ],
+  "alarm_summary": {
+    "total_alarms": 3,
+    "critical_count": 1,
+    "warning_count": 2,
+    "info_count": 0,
+    "alarms": [
+      {
+        "tag_id": "Blastfurnace_Tuyer1_Pressure",
+        "event_type": "ALARM_HIGH_CRITICAL",
+        "severity": 1,
+        "message": "Blast furnace pressure exceeded critical threshold (22.23 Bar > 22.0 Bar)",
+        "time": "2026-01-06T08:34:47.000Z",
+        "metadata": {
+          "alarm_value": 22.23,
+          "setpoint": 22.0,
+          "unit": "Bar",
+          "plant": "Steel_Plant_A",
+          "area": "Blast_Furnace",
+          "equipment": "Tuyer_1",
+          "acknowledged": false,
+          "state": "ACTIVE"
+        }
+      },
+      {
+        "tag_id": "Boiler_Inlet_Temp",
+        "event_type": "ALARM_HIGH_WARNING",
+        "severity": 2,
+        "message": "Boiler inlet temperature above normal operating range (70.98°C > 70.0°C)",
+        "time": "2026-01-06T08:34:47.000Z",
+        "metadata": {
+          "alarm_value": 70.98,
+          "setpoint": 70.0,
+          "unit": "Celsius",
+          "plant": "Steel_Plant_A",
+          "area": "Power_Generation",
+          "equipment": "Boiler_01",
+          "acknowledged": false,
+          "state": "ACTIVE"
+        }
+      },
+      {
+        "tag_id": "Cooling_FAN_SPEED",
+        "event_type": "ALARM_HIGH_WARNING",
+        "severity": 2,
+        "message": "Cooling fan speed above warning threshold (65.88% > 65.0%)",
+        "time": "2026-01-06T08:34:47.000Z",
+        "metadata": {
+          "alarm_value": 65.88,
+          "setpoint": 65.0,
+          "unit": "Percent",
+          "plant": "Steel_Plant_A",
+          "area": "Cooling_System",
+          "equipment": "Fan_01",
+          "acknowledged": false,
+          "state": "ACTIVE"
+        }
+      }
+    ]
+  }
+}

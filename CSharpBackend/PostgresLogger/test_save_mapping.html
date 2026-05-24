@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Save Mapping</title>
+</head>
+<body>
+    <h1>Test Tag Mapping Save</h1>
+    <button onclick="testSave()">Test Save</button>
+    <div id="result" style="margin-top:20px; padding:10px; border:1px solid #ccc;"></div>
+    
+    <script>
+        function testSave() {
+            const result = document.getElementById('result');
+            result.innerHTML = 'Testing...';
+            
+            const mapping = {
+                parquet_column: "TEST_TAG_123",
+                tag_name: "TEST_TAG_123",
+                plant: "Unit1",
+                asset: "Turbine",
+                subsystem: "General",
+                unit: "1",
+                sampling_frequency_seconds: 1,
+                enabled: true
+            };
+            
+            console.log('Sending:', mapping);
+            
+            fetch('http://localhost:6001/api/tags/mapping', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(mapping)
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                result.innerHTML = '<strong>Success!</strong><br>' + JSON.stringify(data, null, 2);
+                result.style.background = '#d4edda';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                result.innerHTML = '<strong>Error!</strong><br>' + error;
+                result.style.background = '#f8d7da';
+            });
+        }
+    </script>
+</body>
+</html>

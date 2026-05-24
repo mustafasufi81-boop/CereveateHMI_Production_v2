@@ -1,0 +1,130 @@
+{
+  "LoggingPaths": {
+    "BaseDirectory": "D:\\OpcLogs\\Data",
+    "DataLogDirectory": "D:\\OpcLogs\\Data",
+    "ApplicationLogDirectory": "D:\\OpcLogs\\AppLogs",
+    "BackupDirectory": "D:\\OpcLogs\\Backup",
+    "ArchiveLogsPath": "D:\\OpcLogs\\Backup\\Logs"
+  },
+  "ArchiveSettings": {
+    "Enabled": true,
+    "ArchiveIntervalMinutes": 15,
+    "AutoCompressEnabled": false
+  },
+  "DataLogging": {
+    "Enabled": true,
+    "IntervalSeconds": 1000,
+    "FileNamePrefix": "OpcData"
+  },
+  "PerformanceIntervals": {
+    "OpcPollingIntervalMs": 1000,
+    "UiBroadcastIntervalMs": 1000,
+    "SignalRBroadcastThrottleMs": 1000,
+    "HistorianPollingFallbackMs": 1000,
+    "ConfigReloadCheckIntervalMs": 60000,
+    "StartupDelayMs": 3000,
+    "ErrorRetryDelayMs": 5000,
+    "HealthReportIntervalMs": 30000,
+    "StatusLogIntervalMs": 10000,
+    "PollingTaskWaitTimeoutMs": 2000,
+    "ReadOperationSlowThresholdMs": 1000,
+    "TagPoolCapacity": 2000,
+    "TagsPerOpcGroup": 2000,
+    "MaxDataPointsPerTag": 10000,
+    "TimestampOrderCapacity": 50000
+  },
+  "BackupSettings": {
+    "Enabled": true,
+    "CheckIntervalMinutes": 5,
+    "AutoBackupOnWrite": true
+  },
+  "PerformanceSettings": {
+    "MaxBoxPlotSamples": 5000,
+    "MaxDistributionSamples": 10000,
+    "MaxChartDataPoints": 50000
+  },
+  "TrendViewerSettings": {
+    "DefaultPointsPerTag": 500,
+    "MaxPointsPerTag": 2000,
+    "DefaultTrendCount": 20,
+    "MaxTrendCount": 20,
+    "ChartContainerMaxHeight": 8000,
+    "ChartHeight": 350,
+    "TableMaxRecords": 100
+  },
+  "StressTest": {
+    "Enabled": false,
+    "TagCount": 10000,
+    "IntervalMs": 1000,
+    "DurationSeconds": 300,
+    "StartupDelayMs": 5000,
+    "ChannelCapacity": 256
+  },
+  "Serilog": {
+    "MinimumLevel": "Information",
+    "RollingInterval": "Day",
+    "OutputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level}] {Message}{NewLine}{Exception}"
+  },
+  "IsEnabled": true,
+  "SelectedTags": [
+    "Bucket Brigade.Real4",
+    "Bucket Brigade.Real8",
+    "Bucket Brigade.UInt1",
+    "Bucket Brigade.UInt2",
+    "Bucket Brigade.UInt4",
+    "Random.Int1",
+    "Random.Int2",
+    "Random.Int4",
+    "Random.Int8",
+    "Random.Money",
+    "Random.Qualities",
+    "Random.Real4",
+    "Random.Real8",
+    "Random.String",
+    "Random.Time",
+    "Random.UInt1",
+    "Random.UInt2",
+    "Random.UInt4",
+    "Random.UInt8",
+    "Triangle Waves.Int1",
+    "Triangle Waves.Int2",
+    "Triangle Waves.Int4",
+    "Triangle Waves.Real4",
+    "Triangle Waves.Real8",
+    "Triangle Waves.UInt1",
+    "Triangle Waves.UInt2",
+    "Triangle Waves.UInt4"
+  ],
+  "MonitoredTags": [
+    "Bucket Brigade.Real4",
+    "Bucket Brigade.Real8",
+    "Bucket Brigade.UInt1",
+    "Bucket Brigade.UInt2",
+    "Bucket Brigade.UInt4",
+    "Random.Int1",
+    "Random.Int2",
+    "Random.Int4",
+    "Random.Int8",
+    "Random.Money",
+    "Random.Qualities",
+    "Random.Real4",
+    "Random.Real8",
+    "Random.String",
+    "Random.Time",
+    "Random.UInt1",
+    "Random.UInt2",
+    "Random.UInt4",
+    "Random.UInt8",
+    "Triangle Waves.Int1",
+    "Triangle Waves.Int2",
+    "Triangle Waves.Int4",
+    "Triangle Waves.Real4",
+    "Triangle Waves.Real8",
+    "Triangle Waves.UInt1",
+    "Triangle Waves.UInt2",
+    "Triangle Waves.UInt4"
+  ],
+  "LoggingIntervalMs": 1000,
+  "ServerProgId": "Matrikon.OPC.Simulation.1",
+  "ServerHost": "localhost"
+}

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grouped Bar UI Test</title>
+    <script src="https://cdn.plot.ly/plotly-2.18.0.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #60a5fa;
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px rgba(96, 165, 250, 0.3);
+        }
+        .controls {
+            background: rgba(30, 30, 30, 0.8);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(96, 165, 250, 0.3);
+        }
+        .btn {
+            background: linear-gradient(135deg, #60a5fa, #3b82f6);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 6px;
+            margin: 5px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(96, 165, 250, 0.4);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        #status {
+            background: rgba(40, 40, 40, 0.9);
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            border-left: 4px solid #60a5fa;
+            min-height: 60px;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #60a5fa; }
+        #biAnalyticsModule {
+            background: rgba(20, 20, 20, 0.6);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid rgba(96, 165, 250, 0.2);
+        }
+        #chartContainer {
+            min-height: 600px;
+            background: rgba(30, 30, 30, 0.5);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: rgba(40, 40, 40, 0.8);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid rgba(96, 165, 250, 0.2);
+        }
+        .stat-label {
+            color: #9ca3af;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            color: #60a5fa;
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Grouped Bar Chart - UI Integration Test</h1>
+        
+        <div class="controls">
+            <button class="btn" onclick="testFullFlow()">🚀 Test Complete Flow</button>
+            <button class="btn" onclick="testWithAllTags()">📊 Load ALL Tags</button>
+            <button class="btn" onclick="testWithFewTags()">📉 Load 5 Tags</button>
+            <button class="btn" onclick="clearTest()">🗑️ Clear</button>
+        </div>
+
+        <div id="status" class="info">Ready to test. Click a button to start...</div>
+
+        <div class="stats" id="statsPanel" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-label">Data Points</div>
+                <div class="stat-value" id="statDataPoints">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Tags Loaded</div>
+                <div class="stat-value" id="statTagsLoaded">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Numeric Tags</div>
+                <div class="stat-value" id="statNumericTags">-</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Displayed</div>
+                <div class="stat-value" id="statDisplayed">-</div>
+            </div>
+        </div>
+
+        <div id="biAnalyticsModule">
+            <div id="chartContainer"></div>
+        </div>
+    </div>
+
+    <script src="static/modules/bi_analytics.js"></script>
+    
+    <script>
+        let currentData = null;
+        let selectedTags = [];
+
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = type;
+            status.innerHTML = message;
+        }
+
+        function updateStats(data, tags, numericTags, displayed) {
+            document.getElementById('statsPanel').style.display = 'grid';
+            document.getElementById('statDataPoints').textContent = data.toLocaleString();
+            document.getElementById('statTagsLoaded').textContent = tags;
+            document.getElementById('statNumericTags').textContent = numericTags;
+            document.getElementById('statDisplayed').textContent = displayed;
+        }
+
+        async function loadData(tags) {
+            updateStatus('📡 Loading data from server...', 'info');
+            
+            try {
+                const params = new URLSearchParams({
+                    start_date: '2025-03-01',
+                    end_date: '2025-03-20',
+                    tags: JSON.stringify(tags)
+                });
+                
+                const response = await fetch(`/api/data?${params}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    throw new Error(result.error || 'Failed to load data');
+                }
+                
+                currentData = result.data;
+                selectedTags = tags;
+                
+                updateStatus(`✅ Loaded ${result.count.toLocaleString()} data points for ${tags.length} tags`, 'success');
+                return result.data;
+                
+            } catch (error) {
+                updateStatus(`❌ Error loading data: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        async function testFullFlow() {
+            const container = document.getElementById('chartContainer');
+            container.innerHTML = '';
+            
+            try {
+                updateStatus('1️⃣ Fetching available tags...', 'info');
+                
+                const tagsResponse = await fetch('/api/tags');
+                const tagsData = await tagsResponse.json();
+                const allTags = tagsData.tags;
+                
+                updateStatus(`2️⃣ Found ${allTags.length} tags. Loading data...`, 'info');
+                
+                // Load first 10 tags
+                const testTags = allTags.slice(0, 10);
+                const data = await loadData(testTags);
+                
+                updateStatus('3️⃣ Initializing BI Analytics module...', 'info');
+                await window.BIAnalytics.initialize(data, testTags);
+                
+                updateStatus('4️⃣ Rendering Grouped Bar Chart...', 'info');
+                await window.BIAnalytics.renderGroupedBarChart(container);
+                
+                // Count numeric tags
+                const firstRow = data[0];
+                const numericTags = Object.keys(firstRow).filter(k => 
+                    k.toLowerCase() !== 'timestamp' && 
+                    typeof firstRow[k] === 'number'
+                ).length;
+                
+                const smartLimit = numericTags <= 10 ? numericTags : Math.min(6, numericTags);
+                
+                updateStats(data.length, testTags.length, numericTags, smartLimit);
+                updateStatus('✅ Test Complete! Grouped Bar Chart rendered successfully.', 'success');
+                
+            } catch (error) {
+                updateStatus(`❌ Test Failed: ${error.message}`, 'error');
+                console.error('Test error:', error);
+            }
+        }
+
+        async function testWithAllTags() {
+            const container = document.getElementById('chartContainer');
+            container.innerHTML = '';
+            
+            try {
+                updateStatus('📊 Loading ALL tags...', 'info');
+                
+                const tagsResponse = await fetch('/api/tags');
+                const tagsData = await tagsResponse.json();
+                const allTags = tagsData.tags;
+                
+                const data = await loadData(allTags);
+                
+                updateStatus(`Initializing with ${allTags.length} tags...`, 'info');
+                await window.BIAnalytics.initialize(data, allTags);
+                
+                updateStatus('Rendering chart with smart limiting...', 'info');
+                await window.BIAnalytics.renderGroupedBarChart(container);
+                
+                const firstRow = data[0];
+                const numericTags = Object.keys(firstRow).filter(k => 
+                    k.toLowerCase() !== 'timestamp' && 
+                    typeof firstRow[k] === 'number'
+                ).length;
+                
+                const smartLimit = numericTags <= 10 ? numericTags : Math.min(6, numericTags);
+                
+                updateStats(data.length, allTags.length, numericTags, smartLimit);
+                updateStatus(`✅ ALL ${allTags.length} tags handled! Displaying ${smartLimit} tags.`, 'success');
+                
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function testWithFewTags() {
+            const container = document.getElementById('chartContainer');
+            container.innerHTML = '';
+            
+            try {
+                updateStatus('📉 Loading 5 tags...', 'info');
+                
+                const tagsResponse = await fetch('/api/tags');
+                const tagsData = await tagsResponse.json();
+                const fewTags = tagsData.tags.slice(0, 5);
+                
+                const data = await loadData(fewTags);
+                await window.BIAnalytics.initialize(data, fewTags);
+                await window.BIAnalytics.renderGroupedBarChart(container);
+                
+                updateStats(data.length, fewTags.length, fewTags.length, fewTags.length);
+                updateStatus('✅ 5 tags test complete! All tags displayed (≤10).', 'success');
+                
+            } catch (error) {
+                updateStatus(`❌ Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function clearTest() {
+            document.getElementById('chartContainer').innerHTML = '';
+            document.getElementById('statsPanel').style.display = 'none';
+            updateStatus('Cleared. Ready for next test.', 'info');
+        }
+
+        console.log('🧪 Grouped Bar UI Test Ready');
+        console.log('Available tests:');
+        console.log('  - testFullFlow() - Complete integration test');
+        console.log('  - testWithAllTags() - Test with all available tags');
+        console.log('  - testWithFewTags() - Test with 5 tags');
+    </script>
+</body>
+</html>

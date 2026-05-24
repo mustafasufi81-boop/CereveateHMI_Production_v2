@@ -1,0 +1,190 @@
+"pid","usename","application_name","client_addr","state","wait_event_type","wait_event","xact_start","query_start","blocking_pids","query"
+40712,"cereveate","","::1","idle in transaction","Client","ClientRead","2026-05-18 04:45:05.126109+05:30","2026-05-18 05:30:26.005727+05:30","{}","
+            SELECT 
+                ist.interlock_tag_id,
+                COALESCE(tm.tag_name, ist.interlock_tag_id) as interlock_tag_name,
+                ist.interlock_type,
+                ist.interlock_state,
+                ist.affected_equipment,
+                ist.event_time,
+                EXTRACT(EPOCH FROM ('2026-04-19T22:28:24.951842+05:30'::TIMESTAMP WITH TIME ZONE - ist.event_time)) as seconds_before_trip
+            FROM historian_raw.interlock_state_tracking ist
+            LEFT JOIN historian_meta.tag_master tm ON ist.interlock_tag_id = tm.tag_id
+            WHERE ist.event_time <= '2026-04-19T22:28:24.951842+05:30'::TIMESTAMP WITH TIME ZONE
+              AND ist.interlock_state IN ('VIOLATED', 'BYPASSED')
+            ORDER BY ist.event_time DESC
+            LIMIT 5
+        "
+44764,"cereveate","","::1","active","Lock","relation","2026-05-18 05:24:51.233706+05:30","2026-05-18 05:24:51.233706+05:30","{40712}","
+    ALTER TABLE historian_meta.tag_master
+    ADD COLUMN IF NOT EXISTS include_in_report BOOLEAN NOT NULL DEFAULT TRUE
+"
+39116,"cereveate","","::1","active","Lock","relation","2026-05-18 05:25:18.724954+05:30","2026-05-18 05:25:18.725054+05:30","{44764}","
+                SELECT tag_id, tag_name, data_type, eng_unit, plant, area, equipment
+                FROM historian_meta.tag_master
+                WHERE enabled = true
+                ORDER BY tag_id
+            "
+22568,"postgres","pgAdmin 4 - CONN:3368017","::1","active","Lock","relation","2026-05-18 05:25:21.602276+05:30","2026-05-18 05:25:21.602276+05:30","{44764}","Select * from historian_meta.tag_master "
+44412,"cereveate","","::1","active","Lock","relation","2026-05-18 05:25:25.443202+05:30","2026-05-18 05:25:25.443416+05:30","{44764}","
+                SELECT DISTINCT ON (sup.metadata->>'alarm_key')
+                    sup.audit_id,
+                    sup.event_id,
+                    sup.tag_id,
+                    COALESCE(tm.tag_name, sup.tag_id)   AS tag_name,
+                    sup.metadata->>'alarm_key'           AS alarm_key,
+                    sup.metadata->>'alarm_level'         AS alarm_level,
+                    sup.performed_by                     AS suppressed_by,
+                    sup.action_timestamp                 AS suppressed_at,
+                    sup.metadata->>'suppress_until'      AS suppress_until,
+                    sup.metadata->>'duration_hours'      AS duration_hours,
+                    sup.action_reason                    AS reason,
+                    sup.action_notes                     AS notes
+                FROM historian_raw.alarm_audit_trail sup
+                LEFT JOIN historian_meta.tag_master tm ON sup.tag_id = tm.tag_id
+                WHERE sup.action_type = 'SUPPRESSED'
+                  "
+38536,"cereveate","","::1","active","Lock","relation","2026-05-18 05:26:45.379357+05:30","2026-05-18 05:26:45.379472+05:30","{44764}","
+                SELECT DISTINCT ON (sup.metadata->>'alarm_key')
+                    sup.audit_id,
+                    sup.event_id,
+                    sup.tag_id,
+                    COALESCE(tm.tag_name, sup.tag_id)   AS tag_name,
+                    sup.metadata->>'alarm_key'           AS alarm_key,
+                    sup.metadata->>'alarm_level'         AS alarm_level,
+                    sup.performed_by                     AS suppressed_by,
+                    sup.action_timestamp                 AS suppressed_at,
+                    sup.metadata->>'suppress_until'      AS suppress_until,
+                    sup.metadata->>'duration_hours'      AS duration_hours,
+                    sup.action_reason                    AS reason,
+                    sup.action_notes                     AS notes
+                FROM historian_raw.alarm_audit_trail sup
+                LEFT JOIN historian_meta.tag_master tm ON sup.tag_id = tm.tag_id
+                WHERE sup.action_type = 'SUPPRESSED'
+                  "
+17884,"cereveate","","::1","active","Lock","relation","2026-05-18 05:27:45.383078+05:30","2026-05-18 05:27:45.383198+05:30","{44764}","
+                SELECT DISTINCT ON (sup.metadata->>'alarm_key')
+                    sup.audit_id,
+                    sup.event_id,
+                    sup.tag_id,
+                    COALESCE(tm.tag_name, sup.tag_id)   AS tag_name,
+                    sup.metadata->>'alarm_key'           AS alarm_key,
+                    sup.metadata->>'alarm_level'         AS alarm_level,
+                    sup.performed_by                     AS suppressed_by,
+                    sup.action_timestamp                 AS suppressed_at,
+                    sup.metadata->>'suppress_until'      AS suppress_until,
+                    sup.metadata->>'duration_hours'      AS duration_hours,
+                    sup.action_reason                    AS reason,
+                    sup.action_notes                     AS notes
+                FROM historian_raw.alarm_audit_trail sup
+                LEFT JOIN historian_meta.tag_master tm ON sup.tag_id = tm.tag_id
+                WHERE sup.action_type = 'SUPPRESSED'
+                  "
+38752,"postgres","pgAdmin 4 - CONN:1784036","::1","active","Lock","relation","2026-05-18 05:28:05.362287+05:30","2026-05-18 05:28:05.362287+05:30","{40712,44764,39116,22568,44412,38536,17884}","ALTER TABLE historian_meta.tag_master
+ADD COLUMN IF NOT EXISTS include_in_report BOOLEAN NOT NULL DEFAULT TRUE;
+
+COMMENT ON COLUMN historian_meta.tag_master.include_in_report
+IS 'Flag to include this tag in reports when using automatic tag selection by source/topic';
+
+-- Verify
+SELECT COUNT(*) AS total_tags,
+       SUM(CASE WHEN include_in_report THEN 1 ELSE 0 END) AS report_tags
+FROM historian_meta.tag_master;"
+43572,"cereveate","","::1","active","Lock","relation","2026-05-18 05:28:45.394874+05:30","2026-05-18 05:28:45.395119+05:30","{44764,38752}","
+                SELECT DISTINCT ON (sup.metadata->>'alarm_key')
+                    sup.audit_id,
+                    sup.event_id,
+                    sup.tag_id,
+                    COALESCE(tm.tag_name, sup.tag_id)   AS tag_name,
+                    sup.metadata->>'alarm_key'           AS alarm_key,
+                    sup.metadata->>'alarm_level'         AS alarm_level,
+                    sup.performed_by                     AS suppressed_by,
+                    sup.action_timestamp                 AS suppressed_at,
+                    sup.metadata->>'suppress_until'      AS suppress_until,
+                    sup.metadata->>'duration_hours'      AS duration_hours,
+                    sup.action_reason                    AS reason,
+                    sup.action_notes                     AS notes
+                FROM historian_raw.alarm_audit_trail sup
+                LEFT JOIN historian_meta.tag_master tm ON sup.tag_id = tm.tag_id
+                WHERE sup.action_type = 'SUPPRESSED'
+                  "
+40612,"cereveate","","::1","active","Lock","relation","2026-05-18 05:29:43.712104+05:30","2026-05-18 05:29:43.712209+05:30","{44764,38752}","
+                    SELECT 
+                        tag_id,
+                        tag_name,
+                        server_progid,
+                        data_type,
+                        eng_unit,
+                        plant,
+                        area,
+                        equipment,
+                        description
+                    FROM historian_meta.tag_master
+                    WHERE enabled = true 
+                        AND server_progid IS NOT NULL
+                    ORDER BY tag_id
+                "
+3224,"cereveate","","::1","active","Lock","relation","2026-05-18 05:29:45.402906+05:30","2026-05-18 05:29:45.403116+05:30","{44764,38752}","
+                SELECT DISTINCT ON (sup.metadata->>'alarm_key')
+                    sup.audit_id,
+                    sup.event_id,
+                    sup.tag_id,
+                    COALESCE(tm.tag_name, sup.tag_id)   AS tag_name,
+                    sup.metadata->>'alarm_key'           AS alarm_key,
+                    sup.metadata->>'alarm_level'         AS alarm_level,
+                    sup.performed_by                     AS suppressed_by,
+                    sup.action_timestamp                 AS suppressed_at,
+                    sup.metadata->>'suppress_until'      AS suppress_until,
+                    sup.metadata->>'duration_hours'      AS duration_hours,
+                    sup.action_reason                    AS reason,
+                    sup.action_notes                     AS notes
+                FROM historian_raw.alarm_audit_trail sup
+                LEFT JOIN historian_meta.tag_master tm ON sup.tag_id = tm.tag_id
+                WHERE sup.action_type = 'SUPPRESSED'
+                  "
+23544,"cereveate","","::1","active","Lock","relation","2026-05-18 05:30:45.397105+05:30","2026-05-18 05:30:45.39737+05:30","{44764,38752}","
+                SELECT DISTINCT ON (sup.metadata->>'alarm_key')
+                    sup.audit_id,
+                    sup.event_id,
+                    sup.tag_id,
+                    COALESCE(tm.tag_name, sup.tag_id)   AS tag_name,
+                    sup.metadata->>'alarm_key'           AS alarm_key,
+                    sup.metadata->>'alarm_level'         AS alarm_level,
+                    sup.performed_by                     AS suppressed_by,
+                    sup.action_timestamp                 AS suppressed_at,
+                    sup.metadata->>'suppress_until'      AS suppress_until,
+                    sup.metadata->>'duration_hours'      AS duration_hours,
+                    sup.action_reason                    AS reason,
+                    sup.action_notes                     AS notes
+                FROM historian_raw.alarm_audit_trail sup
+                LEFT JOIN historian_meta.tag_master tm ON sup.tag_id = tm.tag_id
+                WHERE sup.action_type = 'SUPPRESSED'
+                  "
+36304,"postgres","pgAdmin 4 - CONN:2656302","::1","active","Lock","relation","2026-05-18 05:34:01.648233+05:30","2026-05-18 05:34:01.648233+05:30","{44764,38752}","select * from historian_meta.tag_master"
+39152,"postgres","pgAdmin 4 - CONN:6133846","::1","active",NULL,NULL,"2026-05-18 05:39:39.484861+05:30","2026-05-18 05:39:39.484861+05:30","{}","SELECT
+    a.pid,
+    a.usename,
+    a.application_name,
+    a.client_addr,
+    a.state,
+    a.wait_event_type,
+    a.wait_event,
+    a.xact_start,
+    a.query_start,
+    pg_blocking_pids(a.pid) AS blocking_pids,
+    a.query
+FROM pg_stat_activity a
+WHERE a.datname = current_database()
+ORDER BY a.xact_start NULLS LAST, a.query_start;"
+9056,"postgres","pgAdmin 4 - DB:Automation_DB","::1","idle","Client","ClientRead",NULL,"2026-05-18 05:32:00.501108+05:30","{}","SELECT rel.oid, rel.relname AS name,
+    (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE) AS triggercount,
+    (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=rel.oid AND tgisinternal = FALSE AND tgenabled = 'O') AS has_enable_triggers,
+    (CASE WHEN rel.relkind = 'p' THEN true ELSE false END) AS is_partitioned,
+    (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhrelid=rel.oid LIMIT 1) as is_inherits,
+    (SELECT count(1) FROM pg_catalog.pg_inherits WHERE inhparent=rel.oid LIMIT 1) as is_inherited,
+    des.description
+FROM pg_catalog.pg_class rel
+    LEFT OUTER JOIN pg_catalog.pg_description des ON (des.objoid=rel.oid AND des.objsubid=0 AND des.classoid='pg_class'::regclass)
+    WHERE rel.relkind IN ('r','s','t','p') AND rel.relnamespace = 106008::oid
+    AND NOT rel.relispartition
+        ORDER BY rel.relname;"

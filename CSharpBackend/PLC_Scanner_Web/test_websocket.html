@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+        }
+        .log {
+            border: 1px solid #0f0;
+            padding: 10px;
+            margin: 10px 0;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .timestamp {
+            color: #ff0;
+        }
+        .event {
+            color: #0ff;
+        }
+        h1 {
+            color: #0ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div>Status: <span id="status">Connecting...</span></div>
+    <div>Messages Received: <span id="count">0</span></div>
+    <button onclick="clearLog()">Clear Log</button>
+    <div class="log" id="log"></div>
+
+    <script>
+        let messageCount = 0;
+        const socket = io();
+        
+        function addLog(msg) {
+            const log = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            log.innerHTML = `<div><span class="timestamp">[${time}]</span> ${msg}</div>` + log.innerHTML;
+            messageCount++;
+            document.getElementById('count').textContent = messageCount;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            messageCount = 0;
+            document.getElementById('count').textContent = '0';
+        }
+        
+        socket.on('connect', () => {
+            document.getElementById('status').textContent = 'CONNECTED ✅';
+            document.getElementById('status').style.color = '#0f0';
+            addLog('✅ <span class="event">Connected to server</span>');
+        });
+        
+        socket.on('disconnect', () => {
+            document.getElementById('status').textContent = 'DISCONNECTED ❌';
+            document.getElementById('status').style.color = '#f00';
+            addLog('❌ <span class="event">Disconnected from server</span>');
+        });
+        
+        socket.on('stats_update', (data) => {
+            addLog(`📊 <span class="event">stats_update</span>: PLC=${data.plc_connected}, DB=${data.db_connected}, Tags=${data.tag_count}, Cache=${data.cache_values}`);
+        });
+        
+        socket.on('values_update', (data) => {
+            const tagCount = Object.keys(data).length;
+            const firstTag = Object.keys(data)[0];
+            const firstValue = data[firstTag];
+            addLog(`🏷️ <span class="event">values_update</span>: ${tagCount} tags - Example: ${firstTag} = ${firstValue}`);
+            
+            // Show first 5 tags
+            let tags = '';
+            let count = 0;
+            for (const [tag, value] of Object.entries(data)) {
+                if (count++ < 5) {
+                    tags += `<br>&nbsp;&nbsp;&nbsp;&nbsp;${tag} = ${value}`;
+                }
+            }
+            if (tagCount > 5) {
+                tags += `<br>&nbsp;&nbsp;&nbsp;&nbsp;... and ${tagCount - 5} more tags`;
+            }
+            addLog(tags);
+        });
+        
+        // Log any other events
+        socket.onAny((eventName, ...args) => {
+            if (!['connect', 'disconnect', 'stats_update', 'values_update'].includes(eventName)) {
+                addLog(`🔔 <span class="event">${eventName}</span>: ${JSON.stringify(args)}`);
+            }
+        });
+    </script>
+</body>
+</html>

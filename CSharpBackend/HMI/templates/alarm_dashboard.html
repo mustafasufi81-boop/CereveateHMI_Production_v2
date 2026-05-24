@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMI Dashboard with Alarms</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            grid-gap: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .main-panel {
+            background: #1e293b;
+            border: 2px solid #3b82f6;
+            border-radius: 12px;
+            padding: 30px;
+        }
+        
+        .alarm-panel {
+            background: #1e293b;
+            border: 2px solid #ef4444;
+            border-radius: 12px;
+            padding: 20px;
+            height: fit-content;
+        }
+        
+        h1 {
+            color: #3b82f6;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        
+        h2 {
+            color: #ef4444;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .status-card {
+            background: #0f172a;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        
+        .status-card.alarm {
+            border-left-color: #ef4444;
+            animation: pulse-red 2s infinite;
+        }
+        
+        .status-card.warning {
+            border-left-color: #f59e0b;
+        }
+        
+        @keyframes pulse-red {
+            0%, 100% { border-left-color: #ef4444; }
+            50% { border-left-color: #dc2626; }
+        }
+        
+        .status-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+        
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        .status-time {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+        
+        .alarm-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .alarm-item {
+            background: #0f172a;
+            border-left: 4px solid #ef4444;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            position: relative;
+        }
+        
+        .alarm-item.acknowledged {
+            border-left-color: #f59e0b;
+            opacity: 0.7;
+        }
+        
+        .alarm-item.critical {
+            animation: pulse-red 1.5s infinite;
+        }
+        
+        .alarm-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .alarm-priority {
+            background: #ef4444;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .alarm-priority.priority-5 {
+            background: #dc2626;
+        }
+        
+        .alarm-priority.priority-4 {
+            background: #ef4444;
+        }
+        
+        .alarm-priority.priority-3 {
+            background: #f59e0b;
+        }
+        
+        .alarm-message {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .alarm-details {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .alarm-actions {
+            margin-top: 10px;
+        }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        
+        button:hover {
+            background: #2563eb;
+        }
+        
+        button.ack-btn {
+            background: #f59e0b;
+        }
+        
+        button.ack-btn:hover {
+            background: #d97706;
+        }
+        
+        button.clear-btn {
+            background: #10b981;
+        }
+        
+        button.clear-btn:hover {
+            background: #059669;
+        }
+        
+        .alarm-summary {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #0f172a;
+            border-radius: 8px;
+        }
+        
+        .summary-item {
+            text-align: center;
+        }
+        
+        .summary-count {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ef4444;
+        }
+        
+        .summary-label {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+        }
+        
+        .test-controls {
+            background: #0f172a;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        select, input {
+            background: #374151;
+            color: #e2e8f0;
+            border: 1px solid #6b7280;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Main Process Display -->
+        <div class="main-panel">
+            <h1>🏭 Motor Health Dashboard</h1>
+            
+            <div class="status-grid" id="motorStatus">
+                <!-- Motor status cards will be populated here -->
+            </div>
+            
+            <div class="test-controls">
+                <h3>🧪 Test Alarm System</h3>
+                <select id="testTag">
+                    <option value="Motor_healthy_bit0">Motor Healthy Bit</option>
+                    <option value="High_Temperature_Trip">High Temperature Trip</option>
+                    <option value="High_Vibration_Trip">High Vibration Trip</option>
+                    <option value="Low_Pressure_Trip">Low Pressure Trip</option>
+                    <option value="Overcurrent_Trip">Overcurrent Trip</option>
+                    <option value="Pump_Bearing_Temp">Pump Bearing Temperature</option>
+                    <option value="Boiler_Inlet_Temp">Boiler Inlet Temperature</option>
+                </select>
+                <input type="number" id="testValue" placeholder="Value" step="0.1">
+                <button onclick="simulateAlarm()">Trigger Test Alarm</button>
+                <button onclick="simulateNormalValue()">Set Normal Value</button>
+            </div>
+        </div>
+        
+        <!-- Alarm Panel -->
+        <div class="alarm-panel">
+            <h2>🚨 Active Alarms</h2>
+            
+            <div class="alarm-summary">
+                <div class="summary-item">
+                    <div class="summary-count" id="totalAlarms">0</div>
+                    <div class="summary-label">TOTAL</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-count" id="criticalAlarms">0</div>
+                    <div class="summary-label">CRITICAL</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-count" id="unackAlarms">0</div>
+                    <div class="summary-label">UNACK</div>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button onclick="acknowledgeAll()">Acknowledge All</button>
+                <button onclick="refreshAlarms()">Refresh</button>
+            </div>
+            
+            <div class="alarm-list" id="alarmList">
+                <!-- Alarms will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Real PLC data (will be fetched from database)
+        let motorData = {};
+        let activeAlarms = [];
+        let alarmCounter = 1;
+        
+        // Alarm configuration matching your service
+        const alarmConfig = {
+            motor_health_patterns: ['*healthy*bit*', '*Motor*Health*', '*Drive*Health*'],
+            trip_patterns: ['*Trip*', '*Emergency*', '*Fault*'],
+            analog_limits: {
+                '*Temp*': { high: 85.0, low: 5.0 },
+                '*Current*': { high: 50.0, low: 0.5 },
+                '*RPM*': { high: 3600.0, low: 100.0 },
+                '*Pressure*': { high: 150.0, low: 10.0 },
+                '*Load_MW*': { high: 100.0, low: 5.0 }
+            }
+        };
+        
+        function matchPattern(tagId, pattern) {
+            // Convert wildcard pattern to regex
+            const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
+            return regex.test(tagId);
+        }
+        
+        function checkTagAlarms(tagId, value) {
+            const alarms = [];
+            const timestamp = new Date();
+            
+            // Check motor health bit alarms
+            for (const pattern of alarmConfig.motor_health_patterns) {
+                if (matchPattern(tagId, pattern) && value === 0) {
+                    alarms.push({
+                        id: alarmCounter++,
+                        tagId: tagId,
+                        type: 'MOTOR_HEALTH',
+                        message: 'Motor Health Bit Low - Equipment may be unhealthy',
+                        priority: 4,
+                        timestamp: timestamp,
+                        value: value,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Check trip alarms
+            for (const pattern of alarmConfig.trip_patterns) {
+                if (matchPattern(tagId, pattern) && value === 1) {
+                    alarms.push({
+                        id: alarmCounter++,
+                        tagId: tagId,
+                        type: 'TRIP',
+                        message: 'Equipment Trip Active - Immediate attention required',
+                        priority: 5,
+                        timestamp: timestamp,
+                        value: value,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Check analog limits
+            for (const [pattern, limits] of Object.entries(alarmConfig.analog_limits)) {
+                if (matchPattern(tagId, pattern)) {
+                    if (value > limits.high) {
+                        alarms.push({
+                            id: alarmCounter++,
+                            tagId: tagId,
+                            type: 'HIGH_LIMIT',
+                            message: `Value too high: ${value.toFixed(1)} > ${limits.high}`,
+                            priority: 3,
+                            timestamp: timestamp,
+                            value: value,
+                            acknowledged: false
+                        });
+                    } else if (value < limits.low) {
+                        alarms.push({
+                            id: alarmCounter++,
+                            tagId: tagId,
+                            type: 'LOW_LIMIT',
+                            message: `Value too low: ${value.toFixed(1)} < ${limits.low}`,
+                            priority: 3,
+                            timestamp: timestamp,
+                            value: value,
+                            acknowledged: false
+                        });
+                    }
+                }
+            }
+            
+            return alarms;
+        }
+        
+        function updateMotorStatus() {
+            const container = document.getElementById('motorStatus');
+            container.innerHTML = '';
+            
+            for (const [tagId, data] of Object.entries(motorData)) {
+                const hasAlarm = activeAlarms.some(alarm => alarm.tagId === tagId && !alarm.acknowledged);
+                const hasWarning = activeAlarms.some(alarm => alarm.tagId === tagId && alarm.acknowledged);
+                
+                const card = document.createElement('div');
+                card.className = `status-card ${hasAlarm ? 'alarm' : hasWarning ? 'warning' : ''}`;
+                
+                let displayValue = data.value;
+                if (typeof displayValue === 'number') {
+                    displayValue = displayValue.toFixed(1);
+                }
+                
+                card.innerHTML = `
+                    <div class="status-title">${tagId}</div>
+                    <div class="status-value">${displayValue}</div>
+                    <div class="status-time">${data.timestamp.toLocaleTimeString()}</div>
+                `;
+                
+                container.appendChild(card);
+            }
+        }
+        
+        function updateAlarmDisplay() {
+            const alarmList = document.getElementById('alarmList');
+            const totalAlarms = document.getElementById('totalAlarms');
+            const criticalAlarms = document.getElementById('criticalAlarms');
+            const unackAlarms = document.getElementById('unackAlarms');
+            
+            // Sort alarms by priority (highest first) and timestamp (newest first)
+            const sortedAlarms = [...activeAlarms].sort((a, b) => {
+                if (a.priority !== b.priority) return b.priority - a.priority;
+                return b.timestamp - a.timestamp;
+            });
+            
+            alarmList.innerHTML = '';
+            
+            sortedAlarms.forEach(alarm => {
+                const alarmDiv = document.createElement('div');
+                alarmDiv.className = `alarm-item ${alarm.acknowledged ? 'acknowledged' : ''} ${alarm.priority >= 5 ? 'critical' : ''}`;
+                
+                alarmDiv.innerHTML = `
+                    <div class="alarm-header">
+                        <span class="alarm-priority priority-${alarm.priority}">P${alarm.priority}</span>
+                        <span style="margin-left: auto;">${alarm.timestamp.toLocaleTimeString()}</span>
+                    </div>
+                    <div class="alarm-message">${alarm.message}</div>
+                    <div class="alarm-details">
+                        Tag: ${alarm.tagId} | Value: ${alarm.value} | Type: ${alarm.type}
+                        ${alarm.acknowledged ? `<br>✅ Acknowledged by: ${alarm.acknowledgedBy || 'Operator'}` : ''}
+                    </div>
+                    <div class="alarm-actions">
+                        ${!alarm.acknowledged ? 
+                            `<button class="ack-btn" onclick="acknowledgeAlarm(${alarm.id})">Acknowledge</button>` : ''}
+                        <button class="clear-btn" onclick="clearAlarm(${alarm.id})">Clear</button>
+                    </div>
+                `;
+                
+                alarmList.appendChild(alarmDiv);
+            });
+            
+            // Update summary
+            const total = activeAlarms.length;
+            const critical = activeAlarms.filter(a => a.priority >= 5).length;
+            const unack = activeAlarms.filter(a => !a.acknowledged).length;
+            
+            totalAlarms.textContent = total;
+            criticalAlarms.textContent = critical;
+            unackAlarms.textContent = unack;
+        }
+        
+        function acknowledgeAlarm(alarmId) {
+            const alarm = activeAlarms.find(a => a.id === alarmId);
+            if (alarm) {
+                alarm.acknowledged = true;
+                alarm.acknowledgedBy = 'Operator';
+                alarm.acknowledgedAt = new Date();
+                updateAlarmDisplay();
+                updateMotorStatus();
+            }
+        }
+        
+        function clearAlarm(alarmId) {
+            const index = activeAlarms.findIndex(a => a.id === alarmId);
+            if (index !== -1) {
+                activeAlarms.splice(index, 1);
+                updateAlarmDisplay();
+                updateMotorStatus();
+            }
+        }
+        
+        function acknowledgeAll() {
+            activeAlarms.forEach(alarm => {
+                if (!alarm.acknowledged) {
+                    alarm.acknowledged = true;
+                    alarm.acknowledgedBy = 'Operator';
+                    alarm.acknowledgedAt = new Date();
+                }
+            });
+            updateAlarmDisplay();
+            updateMotorStatus();
+        }
+        
+        function refreshAlarms() {
+            // Re-check all tags for alarms
+            for (const [tagId, data] of Object.entries(motorData)) {
+                const newAlarms = checkTagAlarms(tagId, data.value);
+                newAlarms.forEach(newAlarm => {
+                    // Only add if not already active
+                    const exists = activeAlarms.some(existing => 
+                        existing.tagId === newAlarm.tagId && 
+                        existing.type === newAlarm.type
+                    );
+                    if (!exists) {
+                        activeAlarms.push(newAlarm);
+                    }
+                });
+            }
+            updateAlarmDisplay();
+            updateMotorStatus();
+        }
+        
+        function simulateAlarm() {
+            const tagSelect = document.getElementById('testTag');
+            const valueInput = document.getElementById('testValue');
+            
+            const tagId = tagSelect.value;
+            const value = parseFloat(valueInput.value) || 0;
+            
+            // Update motor data
+            motorData[tagId].value = value;
+            motorData[tagId].timestamp = new Date();
+            
+            // Check for new alarms
+            const newAlarms = checkTagAlarms(tagId, value);
+            newAlarms.forEach(newAlarm => {
+                // Remove any existing alarms for this tag/type combination
+                activeAlarms = activeAlarms.filter(existing => 
+                    !(existing.tagId === newAlarm.tagId && existing.type === newAlarm.type)
+                );
+                // Add the new alarm
+                activeAlarms.push(newAlarm);
+            });
+            
+            updateAlarmDisplay();
+            updateMotorStatus();
+        }
+        
+        function simulateNormalValue() {
+            const tagSelect = document.getElementById('testTag');
+            const tagId = tagSelect.value;
+            
+            // Set to normal value
+            let normalValue;
+            if (tagId.includes('Health') || tagId.includes('Trip')) {
+                normalValue = tagId.includes('Trip') ? 0 : 1;
+            } else if (tagId.includes('Current')) {
+                normalValue = 25.0;
+            } else if (tagId.includes('Temp')) {
+                normalValue = 65.0;
+            } else {
+                normalValue = 1500.0;
+            }
+            
+            motorData[tagId].value = normalValue;
+            motorData[tagId].timestamp = new Date();
+            
+            // Clear alarms for this tag
+            activeAlarms = activeAlarms.filter(alarm => alarm.tagId !== tagId);
+            
+            updateAlarmDisplay();
+            updateMotorStatus();
+            
+            document.getElementById('testValue').value = normalValue;
+        }
+        
+        // Initialize alarm display
+        updateAlarmDisplay();
+        
+        // Fetch real PLC data from database
+        async function fetchRealPLCData() {
+            try {
+                console.log('🔄 Fetching real PLC data...');
+                
+                // Get latest values for all tags from database
+                const now = new Date();
+                const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+                
+                const tagNames = [
+                    'Motor_healthy_bit0',
+                    'High_Temperature_Trip',
+                    'High_Vibration_Trip', 
+                    'Low_Pressure_Trip',
+                    'Overcurrent_Trip',
+                    'Pump_Bearing_Temp',
+                    'Boiler_Inlet_Temp',
+                    'Inlet_Pressure',
+                    'Load_MW'
+                ];
+                
+                for (const tagName of tagNames) {
+                    try {
+                        const response = await fetch(`/api/historical/${encodeURIComponent(tagName)}?start=${oneMinuteAgo.toISOString()}&end=${now.toISOString()}&max_points=1`);
+                        const data = await response.json();
+                        
+                        let value = 0;
+                        let timestamp = new Date();
+                        
+                        if (data.data && data.data.length > 0) {
+                            const latest = data.data[data.data.length - 1];
+                            value = parseFloat(latest.value_num) || 0;
+                            timestamp = new Date(latest.opc_timestamp);
+                        }
+                        
+                        // Update motor data with real PLC values
+                        motorData[tagName] = {
+                            value: value,
+                            quality: 'GOOD',
+                            timestamp: timestamp
+                        };
+                        
+                        console.log(`✅ PLC ${tagName}: ${value}`);
+                        
+                        // Check for alarms on real PLC values
+                        const newAlarms = checkTagAlarms(tagName, value);
+                        newAlarms.forEach(alarm => {
+                            // Remove existing alarms of same type
+                            activeAlarms = activeAlarms.filter(existing => 
+                                !(existing.tagId === alarm.tagId && existing.type === alarm.type)
+                            );
+                            activeAlarms.push(alarm);
+                        });
+                        
+                    } catch (error) {
+                        console.warn(`⚠️ Could not fetch ${tagName}:`, error);
+                    }
+                }
+                
+                updateMotorStatus();
+                updateAlarmDisplay();
+                
+                if (activeAlarms.length > 0) {
+                    console.log(`🚨 Found ${activeAlarms.length} active alarms from PLC data`);
+                }
+                
+            } catch (error) {
+                console.error('❌ Failed to fetch PLC data:', error);
+            }
+        }
+        
+        // Initialize with real PLC data
+        fetchRealPLCData();
+        
+        // Auto-refresh PLC data every 5 seconds
+        setInterval(fetchRealPLCData, 5000);
+        
+        console.log('🚨 Alarm Dashboard Ready - Connected to real PLC data');
+    </script>
+</body>
+</html>

@@ -1,0 +1,245 @@
+{
+  "_description": "Historical Trends Complete Configuration - All settings in one file",
+  "ChartModes": {
+    "EnableLines": true,
+    "EnableScatter": true,
+    "EnableBoxPlot": true,
+    "EnableDistribution": true,
+    "EnableSyncStats": false,
+    "EnablePlantAnalytics": true,
+    "EnableLoadCorrelation": false,
+    "EnableAdvancedBI": false
+  },
+  "IndustrialFeatures": {
+    "EnableOperatingBands": true,
+    "EnableConfigureLimits": true,
+    "EnableDataQualityRules": true,
+    "EnableMLPredictMissing": true,
+    "EnableRawData": true,
+    "EnableAddEvent": true,
+    "EnableShiftSummary": true,
+    "EnableHealthScore": true,
+    "EnableDataQuality": true
+  },
+  "UISettings": {
+    "DefaultChartMode": "lines",
+    "ShowIndustrialBadge": true,
+    "EnableNormalization": true,
+    "EnableInterpolation": true
+  },
+  "SimpleBI": {
+    "QualityDefault": 92.0
+  },
+  "Performance": {
+    "EnableAutoScaling": true,
+    "EnableDownsampling": true
+  },
+  "GroupedBarSettings": {
+    "EnableAutoDetection": true,
+    "DesignFactor": 1.05,
+    "DesignValue": null,
+    "LastPeriodPercentile": 0.75,
+    "TagSpecificLimits": {
+      "BEARING_VIB_HP_FRONT-Y": {
+        "DesignValue": null,
+        "MinOperating": 0,
+        "MaxOperating": 150
+      },
+      "SHAFT_VIB_IP_REAR-X": {
+        "DesignValue": null,
+        "MinOperating": 0,
+        "MaxOperating": 200
+      },
+      "TURBINE_LOADMW": {
+        "DesignValue": 270,
+        "MinOperating": 50,
+        "MaxOperating": 270
+      }
+    },
+    "_usage": {
+      "global": "DesignFactor/DesignValue apply to all tags without specific limits",
+      "per_tag": "TagSpecificLimits override global settings for specific tags",
+      "example": "TURBINE_LOADMW has fixed target=270MW, min=50MW, max=270MW",
+      "fallback": "Tags not listed use global DesignFactor=1.05"
+    }
+  },
+  "TimeSeriesBarSettings": {
+    "DesignFactor": 1.05,
+    "DesignValue": null,
+    "AutoTimeGrouping": true,
+    "TagSpecificLimits": {}
+  },
+  "PivotTableSettings": {
+    "DisplayMode": "ConditionMonitoring",
+    "AlarmLimits": {
+      "BEARING_VIB_HP_FRONT-X": { "Warning": 20, "Alarm": 25, "Trip": 30 },
+      "BEARING_VIB_HP_FRONT-Y": { "Warning": 20, "Alarm": 25, "Trip": 30 },
+      "BEARING_VIB_HP_REAR-X": { "Warning": 20, "Alarm": 25, "Trip": 30 },
+      "BEARING_VIB_HP_REAR-Y": { "Warning": 20, "Alarm": 25, "Trip": 30 },
+      "BEARING_VIB_IP_REAR-X": { "Warning": 21, "Alarm": 23, "Trip": 25 },
+      "BEARING_VIB_IP_REAR-Y": { "Warning": 21, "Alarm": 23, "Trip": 25 },
+      "SHAFT_VIB_HP_FRONT-X": { "Warning": 270, "Alarm": 310, "Trip": 370 },
+      "SHAFT_VIB_HP_FRONT-Y": { "Warning": 145, "Alarm": 305, "Trip": 350 },
+      "SHAFT_VIB_HP_REAR-X": { "Warning": 210, "Alarm": 220, "Trip": 300 },
+      "SHAFT_VIB_HP_REAR-Y": { "Warning": 190, "Alarm": 195, "Trip": 250 },
+      "SHAFT_VIB_IP_REAR-X": { "Warning": 145, "Alarm": 150, "Trip": 200 },
+      "SHAFT_VIB_IP_REAR-Y": { "Warning": 135, "Alarm": 145, "Trip": 160 }
+    },
+    "DefaultLimits": {
+      "BearingVibration": { "Warning": 20, "Alarm": 23, "Trip": 30 },
+      "ShaftVibration": { "Warning": 180, "Alarm": 220, "Trip": 300 },
+      "Temperature": { "Warning": 550, "Alarm": 560, "Trip": 570 },
+      "Pressure": { "Warning": 175, "Alarm": 180, "Trip": 185 }
+    },
+    "HealthThresholds": {
+      "Good": 70,
+      "Warning": 85,
+      "Critical": 100
+    },
+    "StabilityThresholds": {
+      "Stable": 15,
+      "Moderate": 30,
+      "Unstable": 50
+    },
+    "HealthIndicators": {
+      "BearingHealthIndex": {
+        "Enabled": true,
+        "Formula": "(MeanVibration / DesignLimit) * 100",
+        "DesignLimits": {
+          "BEARING_VIB_HP_FRONT-X": 150,
+          "BEARING_VIB_HP_FRONT-Y": 150,
+          "BEARING_VIB_HP_REAR-X": 150,
+          "BEARING_VIB_HP_REAR-Y": 150,
+          "BEARING_VIB_IP_REAR-X": 150,
+          "BEARING_VIB_IP_REAR-Y": 150
+        }
+      },
+      "ShaftStabilityIndex": {
+        "Enabled": true,
+        "Formula": "StdDev / Mean",
+        "GoodThreshold": 0.15,
+        "WarningThreshold": 0.30
+      },
+      "SteamStabilityScore": {
+        "Enabled": true,
+        "Formula": "100 - (CV% of Pressure & Temperature)",
+        "Parameters": ["MAIN_STEAM_PRESSURE", "MAIN_STEAM_TEMP"]
+      }
+    },
+    "KPIGroups": {
+      "BearingHealth": {
+        "Title": "Bearing Health Summary",
+        "Icon": "🔩",
+        "Parameters": ["BEARING_VIB_HP_FRONT-X", "BEARING_VIB_HP_FRONT-Y", "BEARING_VIB_HP_REAR-X", "BEARING_VIB_HP_REAR-Y", "BEARING_VIB_IP_REAR-X", "BEARING_VIB_IP_REAR-Y"],
+        "Metrics": ["Mean", "95thPercentile", "Peak", "StdDev", "DeviationFromDesign"],
+        "Units": "µm",
+        "DesignLimits": 150
+      },
+      "ShaftHealth": {
+        "Title": "Shaft Health Summary",
+        "Icon": "⚙️",
+        "Parameters": ["SHAFT_VIB_HP_FRONT-X", "SHAFT_VIB_HP_FRONT-Y", "SHAFT_VIB_HP_REAR-X", "SHAFT_VIB_HP_REAR-Y", "SHAFT_VIB_IP_REAR-X", "SHAFT_VIB_IP_REAR-Y"],
+        "Metrics": ["Mean", "Peak", "StdDev", "MaxToMeanRatio", "AlarmingPoints"],
+        "Units": "µm",
+        "AlarmThreshold": 100
+      },
+      "SteamPath": {
+        "Title": "Steam Path Condition",
+        "Icon": "🌡️",
+        "Parameters": ["MAIN_STEAM_PRESSURE", "MAIN_STEAM_TEMP", "MAIN_STEAM_FLOW", "REHEAT_TEMP"],
+        "Metrics": ["Mean", "StdDev", "Min", "Max", "DeviationFromDesign", "CV"],
+        "DesignValues": {
+          "MAIN_STEAM_PRESSURE": 170,
+          "MAIN_STEAM_TEMP": 540,
+          "REHEAT_TEMP": 540
+        }
+      },
+      "LoadSteamCorrelation": {
+        "Title": "Load vs Steam Correlation",
+        "Icon": "⚡",
+        "Parameters": ["TURBINE_LOADMW", "MAIN_STEAM_FLOW", "MAIN_STEAM_PRESSURE", "MAIN_STEAM_TEMP"],
+        "Metrics": ["Mean", "LoadToSteamRatio", "MWperTPH", "TrendDrift"],
+        "ReferenceParameter": "TURBINE_LOADMW"
+      },
+      "CoolingImpact": {
+        "Title": "Cooling/Condenser Impact",
+        "Icon": "❄️",
+        "Parameters": ["COOLING_WATER_TEMP"],
+        "Metrics": ["Mean", "Range", "StdDev", "HourlyDrift", "CorrelationToLoad"],
+        "Units": "°C"
+      }
+    },
+    "ChartTypes": {
+      "BearingTrend": "line",
+      "HealthIndex": "bar",
+      "CorrelationMatrix": "heatmap"
+    }
+  },
+  "DataLogging": {
+    "Enabled": true,
+    "IntervalSeconds": 5,
+    "FileNamePrefix": "OpcData"
+  },
+  "Database": {
+    "_comment": "PostgreSQL connection for DBDataService (historian_raw.historian_timeseries). Env vars HIST_DB_* override these values.",
+    "Host": "localhost",
+    "Port": 5432,
+    "Database": "Automation_DB",
+    "User": "cereveate",
+    "Password": "cereveate@222",
+    "PoolMin": 2,
+    "PoolMax": 5,
+    "StatementTimeoutMs": 120000
+  },
+  "QueryEngine": {
+    "MaxPoints": 5000,
+    "RawModeMaxRows": 50000,
+    "BucketModeMaxRows": 2000000,
+    "LTTBOversample": 10,
+    "MaxConcurrentQueries": 3,
+    "SemaphoreTimeoutSeconds": 10
+  },
+  "Paths": {
+    "DataLogDirectory": "D:\\OpcLogs\\Data\\Backup_Parquet",
+    "BackupDirectory": "D:\\OpcLogs\\Backup",
+    "ApplicationLogDirectory": "D:\\OpcLogs\\AppLogs",
+    "DerivedDataDirectory": "D:\\OpcLogs\\DerivedData",
+    "DowntimeDirectory": "D:\\OpcLogs\\Downtime"
+  },
+  "BackupSettings": {
+    "Enabled": true,
+    "CheckIntervalMinutes": 5,
+    "AutoBackupOnWrite": true
+  },
+  "DataQualitySettings": {
+    "MissingValueHandling": "ignore",
+    "InterpolationMethod": "linear",
+    "DowntimeThreshold": {
+      "ConsecutiveMissing": 5,
+      "DurationMinutes": 5
+    },
+    "GarbageDetection": {
+      "Enabled": true,
+      "UnrealisticRangeMultiplier": 5,
+      "ConstantValueDuration": 10
+    }
+  },
+  "BIAnalyticsSettings": {
+    "BaselineWindow": 30,
+    "TopPercentile": 10,
+    "OutlierThreshold": 3,
+    "OutlierMethod": "sigma"
+  },
+  "OperatingBands": {
+    "DefaultBandWidth": 2,
+    "ShowBands": false,
+    "BandMethod": "stddev"
+  },
+  "ChartSettings": {
+    "DefaultTimeRange": "24h",
+    "AutoRefresh": false,
+    "RefreshIntervalSeconds": 60,
+    "ShowLegend": true,
+    "ShowGridLines": true
+  }
+}

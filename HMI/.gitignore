@@ -1,0 +1,99 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# Environment Variables - NEVER COMMIT!
+.env
+.env.local
+.env.production.local
+.env.staging
+
+# React Environment (local overrides only)
+apex-hmi/.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+log/
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Production Config (if contains secrets)
+config.local.json
+secrets.json
+
+# Service Files (may contain paths)
+*.pid
+
+# SSL Certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# React Build Output
+apex-hmi/dist/
+apex-hmi/build/
+apex-hmi/.vite/
+
+# Node Modules
+apex-hmi/node_modules/
+node_modules/
+
+# Backup Files
+*.bak
+*.backup
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation builds
+docs/_build/
+
+# Temporary files
+*.tmp
+temp/
+tmp/

@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PLC HMI Dashboard - MQTT + REST Failover</title>
+    
+    <!-- Chart.js for high-performance charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    
+    <!-- MQTT.js for browser MQTT over WebSocket -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+            color: #E0E0E0;
+            min-height: 100vh;
+        }
+        
+        .dashboard-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 10px;
+            gap: 10px;
+        }
+        
+        /* Header */
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: linear-gradient(90deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 10px;
+            border: 1px solid #333;
+        }
+        
+        .dashboard-header h1 {
+            font-size: 1.5rem;
+            color: #00D9FF;
+            text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
+        }
+        
+        /* Connection Status */
+        .connection-status {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .status-indicator::before {
+            content: '';
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-indicator.connected {
+            background: rgba(0, 255, 136, 0.15);
+            color: #00FF88;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+        
+        .status-indicator.connected::before {
+            background: #00FF88;
+            box-shadow: 0 0 10px #00FF88;
+        }
+        
+        .status-indicator.disconnected {
+            background: rgba(255, 107, 53, 0.15);
+            color: #FF6B35;
+            border: 1px solid rgba(255, 107, 53, 0.3);
+        }
+        
+        .status-indicator.disconnected::before {
+            background: #FF6B35;
+            animation: none;
+        }
+        
+        .status-indicator.active {
+            background: rgba(0, 217, 255, 0.2);
+            color: #00D9FF;
+            border: 2px solid #00D9FF;
+            box-shadow: 0 0 15px rgba(0, 217, 255, 0.3);
+        }
+        
+        .status-indicator.active::before {
+            background: #00D9FF;
+            box-shadow: 0 0 15px #00D9FF;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+        
+        /* Control Panel */
+        .control-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            padding: 15px;
+            background: rgba(26, 26, 46, 0.8);
+            border-radius: 10px;
+            border: 1px solid #333;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .control-group label {
+            font-size: 0.85rem;
+            color: #888;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn-primary { background: #3A86FF; color: white; }
+        .btn-success { background: #00FF88; color: #000; }
+        .btn-warning { background: #FFD93D; color: #000; }
+        .btn-danger { background: #FF6B35; color: white; }
+        .btn-secondary { background: #444; color: #E0E0E0; }
+        
+        select {
+            padding: 8px 12px;
+            border-radius: 6px;
+            background: #2a2a3e;
+            color: #E0E0E0;
+            border: 1px solid #444;
+            font-size: 0.85rem;
+        }
+        
+        /* Main Content */
+        .dashboard-content {
+            display: flex;
+            flex: 1;
+            gap: 15px;
+            min-height: 0;
+        }
+        
+        /* Left Panel - Tag Selection */
+        .left-panel {
+            width: 300px;
+            background: rgba(26, 26, 46, 0.9);
+            border-radius: 10px;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .panel-header {
+            padding: 15px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .panel-header h2 {
+            font-size: 1rem;
+            color: #00D9FF;
+        }
+        
+        .tag-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+        
+        .tag-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .tag-item:hover {
+            border-color: #00D9FF;
+            background: rgba(0, 217, 255, 0.1);
+        }
+        
+        .tag-item.selected {
+            border-color: #00FF88;
+            background: rgba(0, 255, 136, 0.15);
+        }
+        
+        .tag-name {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #E0E0E0;
+        }
+        
+        .tag-value {
+            font-family: 'Consolas', monospace;
+            font-size: 1rem;
+            font-weight: bold;
+            color: #00FF88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+        
+        .tag-value.bad-quality {
+            color: #FF6B35;
+        }
+        
+        .tag-meta {
+            font-size: 0.7rem;
+            color: #666;
+        }
+        
+        /* Right Panel - Chart */
+        .right-panel {
+            flex: 1;
+            background: rgba(26, 26, 46, 0.9);
+            border-radius: 10px;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chart-container {
+            flex: 1;
+            padding: 15px;
+            position: relative;
+        }
+        
+        .chart-container canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        
+        /* Footer */
+        .dashboard-footer {
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 20px;
+            background: rgba(26, 26, 46, 0.8);
+            border-radius: 10px;
+            border: 1px solid #333;
+            font-size: 0.85rem;
+        }
+        
+        .footer-stat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .footer-stat strong {
+            color: #00D9FF;
+        }
+        
+        /* Failover Log */
+        .failover-log {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 350px;
+            max-height: 200px;
+            background: rgba(26, 26, 46, 0.95);
+            border: 1px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            z-index: 1000;
+        }
+        
+        .failover-log-header {
+            padding: 10px;
+            background: #1a1a2e;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .failover-log-content {
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.75rem;
+        }
+        
+        .log-entry {
+            padding: 3px 0;
+            border-bottom: 1px solid #222;
+        }
+        
+        .log-entry.info { color: #00D9FF; }
+        .log-entry.success { color: #00FF88; }
+        .log-entry.warning { color: #FFD93D; }
+        .log-entry.error { color: #FF6B35; }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <h1>🏭 PLC HMI Dashboard - Multi-Protocol</h1>
+            <div class="connection-status">
+                <span id="mqtt-status" class="status-indicator disconnected">
+                    📡 MQTT
+                </span>
+                <span id="rest-status" class="status-indicator disconnected">
+                    🌐 REST API
+                </span>
+                <span id="active-protocol" class="status-indicator">
+                    ⚡ Active: None
+                </span>
+            </div>
+        </header>
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <div class="control-group">
+                <label>MQTT Broker:</label>
+                <input type="text" id="mqtt-broker" value="ws://localhost:9001" style="width: 200px; padding: 8px; background: #2a2a3e; border: 1px solid #444; border-radius: 6px; color: #E0E0E0;">
+                <button id="btn-connect-mqtt" class="btn btn-primary">Connect MQTT</button>
+            </div>
+            
+            <div class="control-group">
+                <label>REST API:</label>
+                <input type="text" id="rest-url" value="http://localhost:5000" style="width: 180px; padding: 8px; background: #2a2a3e; border: 1px solid #444; border-radius: 6px; color: #E0E0E0;">
+            </div>
+            
+            <div class="control-group">
+                <label>PLC Filter:</label>
+                <select id="plc-filter">
+                    <option value="all">All PLCs</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <button id="btn-live" class="btn btn-success">📡 LIVE</button>
+                <button id="btn-pause" class="btn btn-warning">⏸️ Pause</button>
+                <button id="btn-clear" class="btn btn-danger">🗑️ Clear</button>
+            </div>
+            
+            <div class="control-group">
+                <label>History:</label>
+                <select id="history-range">
+                    <option value="1">1 Hour</option>
+                    <option value="6">6 Hours</option>
+                    <option value="24">1 Day</option>
+                    <option value="168">1 Week</option>
+                </select>
+                <button id="btn-load-history" class="btn btn-secondary">📜 Load</button>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="dashboard-content">
+            <!-- Left Panel - Tag Selection -->
+            <div class="left-panel">
+                <div class="panel-header">
+                    <h2>🏷️ PLC Tags</h2>
+                    <div>
+                        <button id="btn-select-all" class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;">All</button>
+                        <button id="btn-clear-selection" class="btn btn-secondary" style="padding: 4px 8px; font-size: 0.75rem;">Clear</button>
+                    </div>
+                </div>
+                <div id="tag-list" class="tag-list">
+                    <!-- Tags will be populated here -->
+                    <div style="color: #666; text-align: center; padding: 20px;">
+                        Waiting for data...
+                    </div>
+                </div>
+                <div style="padding: 10px; border-top: 1px solid #333; font-size: 0.8rem;">
+                    Selected: <strong id="selected-count">0</strong> / <span id="total-count">0</span> tags
+                </div>
+            </div>
+
+            <!-- Right Panel - Chart -->
+            <div class="right-panel">
+                <div class="panel-header">
+                    <h2>📈 Live Trends</h2>
+                    <div class="chart-controls">
+                        <button id="btn-fullscreen" class="btn btn-secondary" style="padding: 4px 8px;">⛶</button>
+                        <button id="btn-reset-zoom" class="btn btn-secondary" style="padding: 4px 8px;">🔍 Reset</button>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="main-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <div class="footer-stat">
+                Protocol: <strong id="current-protocol">None</strong>
+            </div>
+            <div class="footer-stat">
+                Updates: <strong id="update-rate">0</strong>/sec
+            </div>
+            <div class="footer-stat">
+                Tags: <strong id="tag-count">0</strong>
+            </div>
+            <div class="footer-stat">
+                Data Points: <strong id="data-points">0</strong>
+            </div>
+            <div class="footer-stat">
+                Failovers: <strong id="failover-count">0</strong>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Failover Log Panel -->
+    <div class="failover-log" id="failover-log">
+        <div class="failover-log-header">
+            <span>📋 Protocol Log</span>
+            <button onclick="document.getElementById('failover-log').style.display='none'" style="background: none; border: none; color: #888; cursor: pointer;">✕</button>
+        </div>
+        <div class="failover-log-content" id="log-content">
+            <!-- Log entries -->
+        </div>
+    </div>
+
+    <script>
+    /**
+     * PLC HMI Dashboard - MQTT Primary, REST API Failover
+     * 
+     * ARCHITECTURE:
+     * 1. Try MQTT first (real-time push, low latency)
+     * 2. If MQTT fails → automatic failover to REST API (polling)
+     * 3. Periodically check if MQTT recovered → switch back
+     * 4. Same data source, different protocols
+     */
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // GLOBAL STATE
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    const state = {
+        // Protocol state
+        mqttClient: null,
+        mqttConnected: false,
+        restConnected: false,
+        activeProtocol: 'none', // 'mqtt', 'rest', 'none'
+        
+        // Data
+        tagValues: new Map(),      // Current values: tagKey → {value, quality, timestamp}
+        tagHistory: new Map(),     // Historical data: tagKey → [{timestamp, value}, ...]
+        selectedTags: new Set(),   // Selected for charting
+        plcList: new Set(),        // Discovered PLCs
+        
+        // Chart
+        chart: null,
+        maxDataPoints: 500,
+        isPaused: false,
+        
+        // Failover
+        failoverCount: 0,
+        lastMqttCheck: 0,
+        mqttCheckInterval: 30000,  // Check MQTT recovery every 30s
+        
+        // Statistics
+        updateCount: 0,
+        lastUpdateTime: Date.now(),
+        updateRate: 0,
+        
+        // Config
+        mqttBroker: 'ws://localhost:9001',
+        mqttTopic: 'plc/#',
+        restUrl: 'http://localhost:5000',
+        restPollInterval: 1000,
+        restPollTimer: null
+    };
+
+    // SCADA colors for chart
+    const CHART_COLORS = [
+        '#00D9FF', '#FF6B35', '#00FF88', '#FFD93D', '#FF006E',
+        '#8338EC', '#3A86FF', '#FB5607', '#06FFA5', '#F72585'
+    ];
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        log('info', 'PLC HMI Dashboard initializing...');
+        
+        // Initialize chart
+        initializeChart();
+        
+        // Setup event listeners
+        setupEventListeners();
+        
+        // Try MQTT first
+        connectMqtt();
+        
+        // Start update rate counter
+        setInterval(calculateUpdateRate, 1000);
+        
+        // Periodic MQTT recovery check
+        setInterval(checkMqttRecovery, state.mqttCheckInterval);
+        
+        log('success', 'Dashboard initialized');
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MQTT CONNECTION (PRIMARY)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function connectMqtt() {
+        const broker = document.getElementById('mqtt-broker').value;
+        state.mqttBroker = broker;
+        
+        log('info', `Connecting to MQTT: ${broker}`);
+        updateStatus('mqtt-status', 'connecting');
+        
+        try {
+            state.mqttClient = mqtt.connect(broker, {
+                clientId: `plc_hmi_${Math.random().toString(16).substr(2, 8)}`,
+                clean: true,
+                connectTimeout: 5000,
+                reconnectPeriod: 0  // We handle reconnection manually for failover
+            });
+            
+            state.mqttClient.on('connect', onMqttConnect);
+            state.mqttClient.on('message', onMqttMessage);
+            state.mqttClient.on('error', onMqttError);
+            state.mqttClient.on('close', onMqttClose);
+            
+        } catch (err) {
+            log('error', `MQTT connection failed: ${err.message}`);
+            failoverToRest();
+        }
+    }
+    
+    function onMqttConnect() {
+        log('success', 'MQTT connected!');
+        state.mqttConnected = true;
+        updateStatus('mqtt-status', 'connected');
+        
+        // Subscribe to PLC topics
+        const topic = state.mqttTopic;
+        state.mqttClient.subscribe(topic, { qos: 1 }, (err) => {
+            if (err) {
+                log('error', `Subscribe failed: ${err.message}`);
+            } else {
+                log('info', `Subscribed to: ${topic}`);
+            }
+        });
+        
+        // If we were on REST, switch to MQTT
+        if (state.activeProtocol === 'rest') {
+            stopRestPolling();
+            state.failoverCount++;
+            log('success', 'Failback to MQTT from REST');
+        }
+        
+        setActiveProtocol('mqtt');
+    }
+    
+    function onMqttMessage(topic, payload) {
+        try {
+            const data = JSON.parse(payload.toString());
+            handleDataUpdate(data, 'mqtt');
+        } catch (err) {
+            log('warning', `Invalid MQTT message: ${err.message}`);
+        }
+    }
+    
+    function onMqttError(err) {
+        log('error', `MQTT error: ${err.message}`);
+        state.mqttConnected = false;
+        updateStatus('mqtt-status', 'disconnected');
+        
+        if (state.activeProtocol === 'mqtt') {
+            failoverToRest();
+        }
+    }
+    
+    function onMqttClose() {
+        log('warning', 'MQTT connection closed');
+        state.mqttConnected = false;
+        updateStatus('mqtt-status', 'disconnected');
+        
+        if (state.activeProtocol === 'mqtt') {
+            failoverToRest();
+        }
+    }
+    
+    function disconnectMqtt() {
+        if (state.mqttClient) {
+            state.mqttClient.end();
+            state.mqttClient = null;
+        }
+        state.mqttConnected = false;
+        updateStatus('mqtt-status', 'disconnected');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // REST API (FAILOVER)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function failoverToRest() {
+        if (state.activeProtocol === 'rest') return;
+        
+        log('warning', 'MQTT unavailable - failing over to REST API');
+        state.failoverCount++;
+        document.getElementById('failover-count').textContent = state.failoverCount;
+        
+        startRestPolling();
+        setActiveProtocol('rest');
+    }
+    
+    function startRestPolling() {
+        if (state.restPollTimer) return;
+        
+        const baseUrl = document.getElementById('rest-url').value;
+        state.restUrl = baseUrl;
+        
+        log('info', `Starting REST polling: ${baseUrl}/api/plc/values`);
+        
+        // Initial fetch
+        fetchRestData();
+        
+        // Start polling
+        state.restPollTimer = setInterval(fetchRestData, state.restPollInterval);
+    }
+    
+    function stopRestPolling() {
+        if (state.restPollTimer) {
+            clearInterval(state.restPollTimer);
+            state.restPollTimer = null;
+            log('info', 'REST polling stopped');
+        }
+    }
+    
+    async function fetchRestData() {
+        try {
+            const response = await fetch(`${state.restUrl}/api/plc/values`, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            if (!state.restConnected) {
+                state.restConnected = true;
+                updateStatus('rest-status', 'connected');
+                log('success', 'REST API connected');
+            }
+            
+            // Handle the data
+            if (data.values) {
+                handleBulkDataUpdate(data.values, 'rest');
+            }
+            
+        } catch (err) {
+            if (state.restConnected) {
+                state.restConnected = false;
+                updateStatus('rest-status', 'disconnected');
+                log('error', `REST API error: ${err.message}`);
+            }
+        }
+    }
+    
+    function checkMqttRecovery() {
+        if (state.activeProtocol === 'rest' && !state.mqttConnected) {
+            log('info', 'Checking if MQTT recovered...');
+            connectMqtt();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DATA HANDLING
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function handleDataUpdate(data, source) {
+        state.updateCount++;
+        
+        // Handle bulk message (plc/all topic)
+        if (data.values && Array.isArray(data.values)) {
+            handleBulkDataUpdate(data.values, source);
+            return;
+        }
+        
+        // Handle per-PLC message (plc/{plcId}/bulk topic)
+        if (data.plcId && data.values) {
+            data.values.forEach(v => {
+                processTagValue(data.plcId, v.tag, v.value, v.quality, v.timestamp);
+            });
+            return;
+        }
+        
+        // Handle single tag
+        if (data.plcId && data.tag) {
+            processTagValue(data.plcId, data.tag, data.value, data.quality, data.timestamp);
+        }
+    }
+    
+    function handleBulkDataUpdate(values, source) {
+        state.updateCount++;
+        
+        values.forEach(v => {
+            const plcId = v.plcId || v.PlcId || 'UNKNOWN';
+            const tag = v.tag || v.tagName || v.TagName || '';
+            const value = v.value ?? v.Value ?? 0;
+            const quality = v.quality || v.Quality || 'Good';
+            const timestamp = v.timestamp || v.Timestamp || new Date().toISOString();
+            
+            processTagValue(plcId, tag, value, quality, timestamp);
+        });
+        
+        // Update UI
+        updateTagList();
+        updateChart();
+        updateFooterStats();
+    }
+    
+    function processTagValue(plcId, tagName, value, quality, timestamp) {
+        const key = `${plcId}:${tagName}`;
+        
+        // Track PLCs
+        if (!state.plcList.has(plcId)) {
+            state.plcList.add(plcId);
+            updatePlcFilter();
+        }
+        
+        // Update current value
+        state.tagValues.set(key, {
+            plcId,
+            tagName,
+            value: parseFloat(value) || 0,
+            quality: quality || 'Good',
+            timestamp: new Date(timestamp)
+        });
+        
+        // Add to history
+        if (!state.tagHistory.has(key)) {
+            state.tagHistory.set(key, []);
+        }
+        
+        const history = state.tagHistory.get(key);
+        history.push({
+            timestamp: new Date(timestamp),
+            value: parseFloat(value) || 0
+        });
+        
+        // Limit history size
+        if (history.length > state.maxDataPoints) {
+            history.shift();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // UI UPDATES
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function updateTagList() {
+        const container = document.getElementById('tag-list');
+        const filter = document.getElementById('plc-filter').value;
+        
+        let html = '';
+        let count = 0;
+        
+        // Sort tags
+        const sortedTags = Array.from(state.tagValues.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+        
+        for (const [key, data] of sortedTags) {
+            // Apply PLC filter
+            if (filter !== 'all' && data.plcId !== filter) continue;
+            
+            count++;
+            const isSelected = state.selectedTags.has(key);
+            const isBadQuality = data.quality.toLowerCase().includes('bad');
+            const time = data.timestamp.toLocaleTimeString();
+            
+            html += `
+                <div class="tag-item ${isSelected ? 'selected' : ''}" onclick="toggleTag('${key}')">
+                    <div>
+                        <div class="tag-name">${data.tagName}</div>
+                        <div class="tag-meta">${data.plcId} • ${time}</div>
+                    </div>
+                    <div class="tag-value ${isBadQuality ? 'bad-quality' : ''}">
+                        ${typeof data.value === 'number' ? data.value.toFixed(2) : data.value}
+                    </div>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html || '<div style="color: #666; text-align: center; padding: 20px;">No tags available</div>';
+        document.getElementById('total-count').textContent = count;
+        document.getElementById('tag-count').textContent = count;
+    }
+    
+    function toggleTag(key) {
+        if (state.selectedTags.has(key)) {
+            state.selectedTags.delete(key);
+        } else {
+            if (state.selectedTags.size >= 10) {
+                log('warning', 'Maximum 10 tags can be selected');
+                return;
+            }
+            state.selectedTags.add(key);
+        }
+        
+        document.getElementById('selected-count').textContent = state.selectedTags.size;
+        updateTagList();
+        updateChart();
+    }
+    
+    function updatePlcFilter() {
+        const select = document.getElementById('plc-filter');
+        const currentValue = select.value;
+        
+        select.innerHTML = '<option value="all">All PLCs</option>';
+        
+        Array.from(state.plcList).sort().forEach(plcId => {
+            select.innerHTML += `<option value="${plcId}">${plcId}</option>`;
+        });
+        
+        select.value = currentValue;
+    }
+    
+    function updateStatus(elementId, status) {
+        const el = document.getElementById(elementId);
+        el.classList.remove('connected', 'disconnected', 'active');
+        
+        if (status === 'connected') {
+            el.classList.add('connected');
+        } else if (status === 'disconnected') {
+            el.classList.add('disconnected');
+        } else if (status === 'connecting') {
+            el.classList.add('disconnected');
+        }
+    }
+    
+    function setActiveProtocol(protocol) {
+        state.activeProtocol = protocol;
+        
+        const el = document.getElementById('active-protocol');
+        el.classList.remove('connected', 'disconnected', 'active');
+        
+        if (protocol === 'mqtt') {
+            el.innerHTML = '⚡ Active: MQTT';
+            el.classList.add('active');
+        } else if (protocol === 'rest') {
+            el.innerHTML = '⚡ Active: REST';
+            el.classList.add('connected');
+        } else {
+            el.innerHTML = '⚡ Active: None';
+        }
+        
+        document.getElementById('current-protocol').textContent = protocol.toUpperCase();
+    }
+    
+    function updateFooterStats() {
+        document.getElementById('data-points').textContent = 
+            Array.from(state.tagHistory.values()).reduce((sum, h) => sum + h.length, 0);
+    }
+    
+    function calculateUpdateRate() {
+        const now = Date.now();
+        const elapsed = (now - state.lastUpdateTime) / 1000;
+        
+        state.updateRate = Math.round(state.updateCount / elapsed);
+        state.updateCount = 0;
+        state.lastUpdateTime = now;
+        
+        document.getElementById('update-rate').textContent = state.updateRate;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CHART
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function initializeChart() {
+        const ctx = document.getElementById('main-chart').getContext('2d');
+        
+        state.chart = new Chart(ctx, {
+            type: 'line',
+            data: { datasets: [] },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                elements: {
+                    line: {
+                        tension: 0.3,
+                        borderWidth: 2
+                    },
+                    point: {
+                        radius: 0,
+                        hitRadius: 10,
+                        hoverRadius: 4
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            displayFormats: {
+                                second: 'HH:mm:ss',
+                                minute: 'HH:mm',
+                                hour: 'HH:mm'
+                            }
+                        },
+                        ticks: { color: '#888' },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    },
+                    y: {
+                        ticks: { color: '#888' },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { color: '#E0E0E0', usePointStyle: true }
+                    },
+                    zoom: {
+                        pan: { enabled: true, mode: 'xy' },
+                        zoom: {
+                            wheel: { enabled: true },
+                            pinch: { enabled: true },
+                            mode: 'xy'
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function updateChart() {
+        if (state.isPaused || !state.chart) return;
+        
+        const datasets = [];
+        let colorIndex = 0;
+        
+        for (const key of state.selectedTags) {
+            const history = state.tagHistory.get(key);
+            if (!history || history.length === 0) continue;
+            
+            const tagData = state.tagValues.get(key);
+            const color = CHART_COLORS[colorIndex % CHART_COLORS.length];
+            
+            datasets.push({
+                label: tagData ? tagData.tagName : key,
+                data: history.map(h => ({ x: h.timestamp, y: h.value })),
+                borderColor: color,
+                backgroundColor: color + '20',
+                fill: false
+            });
+            
+            colorIndex++;
+        }
+        
+        state.chart.data.datasets = datasets;
+        state.chart.update('none');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // LOGGING
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function log(level, message) {
+        const time = new Date().toLocaleTimeString();
+        const logContent = document.getElementById('log-content');
+        
+        logContent.innerHTML = `<div class="log-entry ${level}">[${time}] ${message}</div>` + logContent.innerHTML;
+        
+        // Limit log entries
+        while (logContent.children.length > 50) {
+            logContent.removeChild(logContent.lastChild);
+        }
+        
+        console.log(`[${level.toUpperCase()}] ${message}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EVENT LISTENERS
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    function setupEventListeners() {
+        // MQTT Connect
+        document.getElementById('btn-connect-mqtt').addEventListener('click', () => {
+            disconnectMqtt();
+            connectMqtt();
+        });
+        
+        // Live/Pause/Clear
+        document.getElementById('btn-live').addEventListener('click', () => {
+            state.isPaused = false;
+            log('info', 'Live mode enabled');
+        });
+        
+        document.getElementById('btn-pause').addEventListener('click', () => {
+            state.isPaused = !state.isPaused;
+            document.getElementById('btn-pause').textContent = state.isPaused ? '▶️ Resume' : '⏸️ Pause';
+            log('info', state.isPaused ? 'Paused' : 'Resumed');
+        });
+        
+        document.getElementById('btn-clear').addEventListener('click', () => {
+            state.tagHistory.clear();
+            state.selectedTags.clear();
+            updateChart();
+            updateTagList();
+            log('info', 'Data cleared');
+        });
+        
+        // Select All / Clear Selection
+        document.getElementById('btn-select-all').addEventListener('click', () => {
+            const filter = document.getElementById('plc-filter').value;
+            let count = 0;
+            
+            for (const [key, data] of state.tagValues) {
+                if (filter !== 'all' && data.plcId !== filter) continue;
+                if (count >= 10) break;
+                state.selectedTags.add(key);
+                count++;
+            }
+            
+            document.getElementById('selected-count').textContent = state.selectedTags.size;
+            updateTagList();
+            updateChart();
+        });
+        
+        document.getElementById('btn-clear-selection').addEventListener('click', () => {
+            state.selectedTags.clear();
+            document.getElementById('selected-count').textContent = 0;
+            updateTagList();
+            updateChart();
+        });
+        
+        // PLC Filter change
+        document.getElementById('plc-filter').addEventListener('change', updateTagList);
+        
+        // Reset zoom
+        document.getElementById('btn-reset-zoom').addEventListener('click', () => {
+            if (state.chart) {
+                state.chart.resetZoom();
+            }
+        });
+        
+        // Fullscreen
+        document.getElementById('btn-fullscreen').addEventListener('click', () => {
+            const container = document.querySelector('.right-panel');
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                container.requestFullscreen();
+            }
+        });
+        
+        // Load historical data
+        document.getElementById('btn-load-history').addEventListener('click', loadHistoricalData);
+    }
+    
+    async function loadHistoricalData() {
+        const hours = parseInt(document.getElementById('history-range').value);
+        log('info', `Loading ${hours} hours of historical data...`);
+        
+        try {
+            // This would call your historian API
+            const response = await fetch(`${state.restUrl}/api/plc/history?hours=${hours}`);
+            if (response.ok) {
+                const data = await response.json();
+                log('success', `Loaded historical data`);
+                // Process historical data...
+            }
+        } catch (err) {
+            log('error', `Failed to load history: ${err.message}`);
+        }
+    }
+    </script>
+</body>
+</html>

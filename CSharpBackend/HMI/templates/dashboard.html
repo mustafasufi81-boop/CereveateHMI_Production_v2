@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMI Dashboard - Real-Time OPC Data</title>
+    
+    <!-- Chart.js for high-performance charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    
+    <!-- Socket.IO for WebSocket connection -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Trend Engine (modular) -->
+    <script src="/static/js/trend_engine.js"></script>
+    
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/static/css/dashboard_scada.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <h1>🏭 HMI Dashboard - Live OPC Data</h1>
+            <div class="connection-status">
+                <span id="signalr-status" class="status-indicator offline">SignalR</span>
+                <span id="websocket-status" class="status-indicator offline">WebSocket</span>
+                <span id="db-status" class="status-indicator offline">Database</span>
+            </div>
+        </header>
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <!-- Time Navigation Controls -->
+            <div class="time-nav-controls">
+                <button id="btn-live" class="btn btn-success" title="Switch to Live Mode (Ctrl+Home)">
+                    📡 LIVE
+                </button>
+                <button id="btn-pause" class="btn btn-warning" title="Pause Updates">
+                    ⏸️ Pause
+                </button>
+                
+                <!-- Quick Time Range Buttons with Auto Sampling -->
+                <button id="btn-back-1h" class="btn btn-secondary" title="Load 1 Hour (Auto sampling: ~5 sec)">
+                    ⏪ 1h
+                </button>
+                <button id="btn-back-6h" class="btn btn-secondary" title="Load 6 Hours (Auto sampling: ~30 sec)">
+                    ⏪ 6h
+                </button>
+                <button id="btn-back-24h" class="btn btn-secondary" title="Load 24 Hours (Auto sampling: ~1 min)">
+                    ⏪ 1 Day
+                </button>
+                <button id="btn-back-1week" class="btn btn-secondary" title="Load 1 Week (Auto sampling: ~5 min)">
+                    📅 1 Week
+                </button>
+                <button id="btn-back-1month" class="btn btn-secondary" title="Load 1 Month (Auto sampling: ~30 min)">
+                    📅 1 Month
+                </button>
+                <button id="btn-back-3months" class="btn btn-secondary" title="Load 3 Months (Auto sampling: ~1 hour)">
+                    📅 3 Months
+                </button>
+                <button id="btn-back-1year" class="btn btn-secondary" title="Load 1 Year (Auto sampling: ~4 hours)">
+                    📅 1 Year
+                </button>
+                
+                <span id="time-range-display" class="time-display">LIVE MODE</span>
+            </div>
+
+            <div class="control-group">
+                <label>Historical Range:</label>
+                <select id="historical-range">
+                    <option value="1">Last 1 Hour</option>
+                    <option value="6">Last 6 Hours</option>
+                    <option value="24">Last 1 Day</option>
+                    <option value="48">Last 2 Days</option>
+                    <option value="72">Last 3 Days</option>
+                    <option value="96">Last 4 Days</option>
+                    <option value="120">Last 5 Days</option>
+                    <option value="144">Last 6 Days</option>
+                    <option value="168">Last 1 Week (7 Days)</option>
+                    <option value="336">Last 2 Weeks (14 Days)</option>
+                    <option value="504">Last 3 Weeks (21 Days)</option>
+                    <option value="672">Last 4 Weeks (28 Days)</option>
+                    <option value="720">Last 1 Month (30 Days)</option>
+                    <option value="1440">Last 2 Months (60 Days)</option>
+                    <option value="2160">Last 3 Months (90 Days)</option>
+                    <option value="4320">Last 6 Months (180 Days)</option>
+                    <option value="8760">Last 1 Year (365 Days)</option>
+                </select>
+                
+                <label>Sampling:</label>
+                <select id="sampling-interval-select">
+                    <!-- Will be populated from config -->
+                </select>
+                <button id="load-historical" class="btn btn-primary">📜 Load Historical</button>
+                <button id="clear-historical" class="btn btn-danger" title="Clear historical data and return to live mode">🗑️ Clear History</button>
+            </div>
+            
+            <div class="control-group">
+                <label>📜 Scroll Data:</label>
+                <button id="scroll-back-btn" class="btn btn-secondary" onclick="scrollBackward()" title="Scroll backward 50%">⬅️ Back</button>
+                <button id="scroll-forward-btn" class="btn btn-secondary" onclick="scrollForward()" title="Scroll forward 50%">➡️ Forward</button>
+                <button id="scroll-live-btn" class="btn btn-success" onclick="scrollToLive()" title="Jump to live data">⏩ Live</button>
+            </div>
+
+            <div class="control-group">
+                <button id="save-dashboard" class="btn btn-success">💾 Save</button>
+                <button id="load-dashboard" class="btn btn-info">📂 Load</button>
+                <button id="clear-charts" class="btn btn-warning">🗑️ Clear</button>
+                <button id="reset-all" class="btn btn-danger" title="Reset: Clear all tags, history, and return to live mode">🔄 Reset All</button>
+            </div>
+        </div>
+
+        <!-- Alarm Status Bar -->
+        <div class="alarm-status-bar" id="alarmStatusBar" style="display: block;">
+            <div class="alarm-summary">
+                <span class="alarm-indicator critical" id="criticalCount">0</span>
+                <span class="alarm-label">Critical</span>
+                <span class="alarm-indicator warning" id="warningCount">0</span>
+                <span class="alarm-label">Warning</span>
+                <span class="alarm-indicator unack" id="unackCount">0</span>
+                <span class="alarm-label">Unack</span>
+                <button class="alarm-toggle-btn" onclick="scanAllTagsForAlarms()" style="margin-right: 8px; background: #4CAF50;">🔄 Scan</button>
+                <button class="alarm-toggle-btn" onclick="checkCurrentDashboardData()" style="margin-right: 8px; background: #FF9800;">📊 Check Dashboard</button>
+                <button class="alarm-toggle-btn" onclick="toggleAlarmPanel()">🚨 Alarms</button>
+            </div>
+        </div>
+
+        <!-- Expandable Alarm Panel -->
+        <div class="alarm-panel hidden" id="alarmPanel">
+            <div class="alarm-panel-header">
+                <h3>🚨 Active Alarms</h3>
+                <div class="alarm-controls">
+                    <button onclick="acknowledgeAllAlarms()">Ack All</button>
+                    <button onclick="refreshAlarms()">Refresh</button>
+                    <button onclick="toggleAlarmPanel()">✕</button>
+                </div>
+            </div>
+            <div class="alarm-list" id="alarmList">
+                <!-- Alarms will be populated here -->
+            </div>
+        </div>
+
+        <!-- Main Content Area with Resizable Panels -->
+        <div class="dashboard-content">
+            <!-- LEFT PANEL: Tag Selection (Resizable) -->
+            <div class="panel left-panel" id="left-panel">
+                <div class="panel-header">
+                    <h2>🏷️ Tag Selection</h2>
+                    <div class="selection-controls">
+                        <button id="select-all" class="btn btn-sm btn-success">✓ All</button>
+                        <button id="clear-all" class="btn btn-sm btn-warning">✗ Clear</button>
+                        <button id="toggle-panel" class="btn btn-sm btn-secondary">◀</button>
+                    </div>
+                </div>
+                <div class="tag-selector-container">
+                    <div id="tag-checkboxes" class="tag-checkboxes">
+                        <!-- Tag checkboxes will be populated here -->
+                    </div>
+                </div>
+                <div class="selection-summary">
+                    <strong id="selected-count">0</strong> / <span id="total-count">0</span> tags selected
+                </div>
+            </div>
+
+            <!-- RESIZE HANDLE -->
+            <div class="resize-handle" id="resize-handle"></div>
+
+            <!-- RIGHT PANEL: Charts and Live Values -->
+            <div class="panel right-panel" id="right-panel">
+                <!-- Chart Container with Fullscreen -->
+                <div class="chart-panel">
+                    <div class="chart-header">
+                        <h2>📈 Live Trends</h2>
+                        <div style="font-size: 11px; color: #00D9FF; margin: 5px 0;">
+                            💡 <strong>Zoom:</strong> Left-click + drag to select area | Mouse wheel to zoom | Drag to pan | Double-click to reset
+                        </div>
+                        <div class="chart-controls">
+                            <button id="fullscreen-btn" class="btn btn-sm btn-info">⛶ Fullscreen</button>
+                            <button id="reset-zoom" class="btn btn-sm btn-secondary">🔍 Reset Zoom</button>
+                        </div>
+                    </div>
+                    <div id="chart-container" class="chart-container-wrapper">
+                        <canvas id="main-chart"></canvas>
+                    </div>
+                    <div class="chart-stats" id="chart-stats"></div>
+                </div>
+
+                <!-- Bottom table removed - values shown in left panel only when selected -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="dashboard-footer">
+            <span>Connected Clients: <strong id="client-count">0</strong></span>
+            <span>Update Rate: <strong id="update-rate">0</strong> updates/sec</span>
+            <span>Data Points: <strong id="data-points">0</strong></span>
+        </footer>
+    </div>
+
+    <!-- Custom JavaScript -->
+        <!-- Diagnostic script -->
+    <script src="/static/js/check_load.js"></script>
+    
+        <!-- Main JavaScript -->
+    <script src="/static/js/dashboard.js?v={{ timestamp }}"></script>
+    
+    <!-- DISABLED: TrendEngine conflicts with dashboard.js Chart.js initialization
+    <script>
+        // Global trend engine instance
+        let trendEngine;
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize trend engine
+            trendEngine = new TrendEngine('main-chart');
+            
+            // Setup navigation buttons
+            document.getElementById('btn-live').addEventListener('click', () => {
+                trendEngine.switchToLive();
+                document.getElementById('time-range-display').textContent = 'LIVE MODE';
+            });
+            
+            document.getElementById('btn-pause').addEventListener('click', () => {
+                trendEngine.timeNav.isPaused = !trendEngine.timeNav.isPaused;
+                const btn = document.getElementById('btn-pause');
+                btn.textContent = trendEngine.timeNav.isPaused ? '▶️ Resume' : '⏸️ Pause';
+            });
+            
+            document.getElementById('btn-back-1h').addEventListener('click', () => {
+                trendEngine.navigateBackward(3600);
+                updateTimeDisplay();
+            });
+            
+            document.getElementById('btn-back-6h').addEventListener('click', () => {
+                trendEngine.navigateBackward(6 * 3600);
+                updateTimeDisplay();
+            });
+            
+            document.getElementById('btn-back-24h').addEventListener('click', () => {
+                trendEngine.navigateBackward(24 * 3600);
+                updateTimeDisplay();
+            });
+            
+            document.getElementById('btn-forward-1h').addEventListener('click', () => {
+                trendEngine.navigateForward(3600);
+                updateTimeDisplay();
+            });
+            
+            document.getElementById('btn-forward-6h').addEventListener('click', () => {
+                trendEngine.navigateForward(6 * 3600);
+                updateTimeDisplay();
+            });
+            
+            document.getElementById('load-historical').addEventListener('click', () => {
+                const hours = parseInt(document.getElementById('historical-range').value);
+                trendEngine.switchToHistorical(hours);
+                updateTimeDisplay();
+            });
+            
+            document.getElementById('clear-charts').addEventListener('click', () => {
+                if (confirm('Clear all trends?')) {
+                    trendEngine.clear();
+                }
+            });
+            
+            function updateTimeDisplay() {
+                const display = document.getElementById('time-range-display');
+                if (trendEngine.timeNav.mode === 'live') {
+                    display.textContent = 'LIVE MODE';
+                } else {
+                    const start = trendEngine.timeNav.startTime.toLocaleString();
+                    const end = trendEngine.timeNav.endTime.toLocaleString();
+                    display.textContent = `${start} → ${end}`;
+                }
+            }
+        });
+    </script>
+    END DISABLED SCRIPT -->
+
+    <!-- Alarm System JavaScript -->
+    <script>
+        // Alarm System Integration
+        let activeAlarms = [];
+        let alarmCounter = 1;
+        
+        // Alarm configuration for motor health monitoring
+        const alarmConfig = {
+            motor_health_patterns: ['*Motor*Health*', '*Drive*Health*', '*Pump*Health*'],
+            trip_patterns: ['*Trip*', '*Emergency*', '*Fault*', '*Alarm*'],
+            analog_limits: {
+                '*Temp*': { high: 85.0, low: 5.0 },
+                '*Current*': { high: 50.0, low: 0.5 },
+                '*RPM*': { high: 3600.0, low: 100.0 },
+                '*Pressure*': { high: 150.0, low: 10.0 }
+            }
+        };
+        
+        function matchPattern(tagId, pattern) {
+            const regex = new RegExp(pattern.replace(/\*/g, '.*'), 'i');
+            return regex.test(tagId);
+        }
+        
+        function checkTagAlarms(tagId, value) {
+            const alarms = [];
+            const timestamp = new Date();
+            
+            if (typeof value !== 'number' || isNaN(value)) return alarms;
+            
+            // Check motor health bit alarms
+            for (const pattern of alarmConfig.motor_health_patterns) {
+                if (matchPattern(tagId, pattern) && value === 0) {
+                    alarms.push({
+                        id: alarmCounter++,
+                        tagId: tagId,
+                        type: 'MOTOR_HEALTH',
+                        message: 'Motor Health Bit Low - Equipment may be unhealthy',
+                        priority: 4,
+                        timestamp: timestamp,
+                        value: value,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Check trip alarms
+            for (const pattern of alarmConfig.trip_patterns) {
+                if (matchPattern(tagId, pattern) && value === 1) {
+                    alarms.push({
+                        id: alarmCounter++,
+                        tagId: tagId,
+                        type: 'TRIP',
+                        message: 'Equipment Trip Active - Immediate attention required',
+                        priority: 5,
+                        timestamp: timestamp,
+                        value: value,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Check analog limits
+            for (const [pattern, limits] of Object.entries(alarmConfig.analog_limits)) {
+                if (matchPattern(tagId, pattern)) {
+                    if (value > limits.high) {
+                        alarms.push({
+                            id: alarmCounter++,
+                            tagId: tagId,
+                            type: 'HIGH_LIMIT',
+                            message: `Value too high: ${value.toFixed(1)} > ${limits.high}`,
+                            priority: 3,
+                            timestamp: timestamp,
+                            value: value,
+                            acknowledged: false
+                        });
+                    } else if (value < limits.low) {
+                        alarms.push({
+                            id: alarmCounter++,
+                            tagId: tagId,
+                            type: 'LOW_LIMIT',
+                            message: `Value too low: ${value.toFixed(1)} < ${limits.low}`,
+                            priority: 3,
+                            timestamp: timestamp,
+                            value: value,
+                            acknowledged: false
+                        });
+                    }
+                }
+            }
+            
+            return alarms;
+        }
+        
+        function processTagUpdate(tagId, value) {
+            // Remove existing alarms for this tag/type combination
+            const newAlarms = checkTagAlarms(tagId, value);
+            
+            newAlarms.forEach(newAlarm => {
+                // Remove any existing alarms of same type for this tag
+                activeAlarms = activeAlarms.filter(existing => 
+                    !(existing.tagId === newAlarm.tagId && existing.type === newAlarm.type)
+                );
+                // Add new alarm
+                activeAlarms.push(newAlarm);
+            });
+            
+            updateAlarmDisplay();
+        }
+        
+        function updateAlarmDisplay() {
+            const criticalCount = activeAlarms.filter(a => a.priority >= 5 && !a.acknowledged).length;
+            const warningCount = activeAlarms.filter(a => a.priority < 5 && !a.acknowledged).length;
+            const unackCount = activeAlarms.filter(a => !a.acknowledged).length;
+            
+            document.getElementById('criticalCount').textContent = criticalCount;
+            document.getElementById('warningCount').textContent = warningCount;
+            document.getElementById('unackCount').textContent = unackCount;
+            
+            // Update critical indicator animation
+            const criticalEl = document.getElementById('criticalCount');
+            if (criticalCount > 0) {
+                criticalEl.classList.add('active');
+            } else {
+                criticalEl.classList.remove('active');
+            }
+            
+            // Update alarm list
+            const alarmList = document.getElementById('alarmList');
+            const sortedAlarms = [...activeAlarms].sort((a, b) => {
+                if (a.priority !== b.priority) return b.priority - a.priority;
+                return b.timestamp - a.timestamp;
+            });
+            
+            alarmList.innerHTML = '';
+            
+            if (sortedAlarms.length === 0) {
+                alarmList.innerHTML = '<div style="text-align: center; padding: 20px; color: #10b981;">✅ No Active Alarms</div>';
+                return;
+            }
+            
+            sortedAlarms.slice(0, 10).forEach(alarm => { // Show max 10 alarms
+                const alarmDiv = document.createElement('div');
+                alarmDiv.className = `alarm-item ${alarm.acknowledged ? 'acknowledged' : ''} ${alarm.priority >= 5 ? 'critical' : ''}`;
+                
+                alarmDiv.innerHTML = `
+                    <div class="alarm-header">
+                        <span class="alarm-priority priority-${alarm.priority}">P${alarm.priority}</span>
+                        <span style="font-size: 11px;">${alarm.timestamp.toLocaleTimeString()}</span>
+                    </div>
+                    <div class="alarm-message">${alarm.message}</div>
+                    <div class="alarm-details">
+                        Tag: ${alarm.tagId} | Value: ${alarm.value} | Type: ${alarm.type}
+                        ${alarm.acknowledged ? `<br>✅ Acknowledged` : ''}
+                    </div>
+                    <div class="alarm-actions">
+                        ${!alarm.acknowledged ? 
+                            `<button class="ack-btn" onclick="acknowledgeAlarm(${alarm.id})">Acknowledge</button>` : ''}
+                        <button class="clear-btn" onclick="clearAlarm(${alarm.id})">Clear</button>
+                    </div>
+                `;
+                
+                alarmList.appendChild(alarmDiv);
+            });
+            
+            if (sortedAlarms.length > 10) {
+                const moreDiv = document.createElement('div');
+                moreDiv.style.textAlign = 'center';
+                moreDiv.style.padding = '10px';
+                moreDiv.style.color = '#9ca3af';
+                moreDiv.innerHTML = `... and ${sortedAlarms.length - 10} more alarms`;
+                alarmList.appendChild(moreDiv);
+            }
+        }
+        
+        function toggleAlarmPanel() {
+            const panel = document.getElementById('alarmPanel');
+            panel.classList.toggle('hidden');
+        }
+        
+        function acknowledgeAlarm(alarmId) {
+            const alarm = activeAlarms.find(a => a.id === alarmId);
+            if (alarm) {
+                alarm.acknowledged = true;
+                alarm.acknowledgedBy = 'Operator';
+                alarm.acknowledgedAt = new Date();
+                updateAlarmDisplay();
+            }
+        }
+        
+        function clearAlarm(alarmId) {
+            const index = activeAlarms.findIndex(a => a.id === alarmId);
+            if (index !== -1) {
+                activeAlarms.splice(index, 1);
+                updateAlarmDisplay();
+            }
+        }
+        
+        function acknowledgeAllAlarms() {
+            activeAlarms.forEach(alarm => {
+                if (!alarm.acknowledged) {
+                    alarm.acknowledged = true;
+                    alarm.acknowledgedBy = 'Operator';
+                    alarm.acknowledgedAt = new Date();
+                }
+            });
+            updateAlarmDisplay();
+        }
+        
+        function refreshAlarms() {
+            // This would normally check current tag values
+            console.log('Alarm refresh triggered');
+            updateAlarmDisplay();
+        }
+        
+        // Simple alarm checker based on tag name and value
+        function checkValueForAlarms(tagId, value) {
+            const alarms = [];
+            const timestamp = new Date();
+            
+            // Convert value to number
+            const numValue = parseFloat(value);
+            if (isNaN(numValue)) return alarms;
+            
+            // Check for health bit alarms (should be 1, alarm if 0)
+            if (tagId.toLowerCase().includes('healthy') || tagId.toLowerCase().includes('health')) {
+                if (numValue === 0) {
+                    alarms.push({
+                        id: Date.now() + Math.random(),
+                        tagId: tagId,
+                        type: 'MOTOR_HEALTH',
+                        message: `${tagId}: Motor Health Bit Low (${numValue})`,
+                        priority: 4,
+                        timestamp: timestamp,
+                        value: numValue,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Check for trip alarms (should be 0, alarm if 1)  
+            if (tagId.toLowerCase().includes('trip')) {
+                if (numValue === 1) {
+                    alarms.push({
+                        id: Date.now() + Math.random(),
+                        tagId: tagId,
+                        type: 'TRIP',
+                        message: `${tagId}: Equipment Trip Active (${numValue})`,
+                        priority: 5,
+                        timestamp: timestamp,
+                        value: numValue,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Temperature limits
+            if (tagId.toLowerCase().includes('temp')) {
+                if (numValue > 85) {
+                    alarms.push({
+                        id: Date.now() + Math.random(),
+                        tagId: tagId,
+                        type: 'HIGH_TEMP',
+                        message: `${tagId}: Temperature High (${numValue.toFixed(1)}°C > 85°C)`,
+                        priority: 3,
+                        timestamp: timestamp,
+                        value: numValue,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            // Pressure limits
+            if (tagId.toLowerCase().includes('pressure')) {
+                if (numValue > 150 || numValue < 10) {
+                    alarms.push({
+                        id: Date.now() + Math.random(),
+                        tagId: tagId,
+                        type: numValue > 150 ? 'HIGH_PRESSURE' : 'LOW_PRESSURE',
+                        message: `${tagId}: Pressure ${numValue > 150 ? 'High' : 'Low'} (${numValue.toFixed(1)})`,
+                        priority: 3,
+                        timestamp: timestamp,
+                        value: numValue,
+                        acknowledged: false
+                    });
+                }
+            }
+            
+            return alarms;
+        }
+        
+        // Check all current tag values for alarms
+        function scanAllTagsForAlarms() {
+            console.log('🔍 Scanning all tags for alarm conditions...');
+            
+            // Clear existing alarms
+            activeAlarms = [];
+            
+            // Check trend engine data
+            if (typeof trendEngine !== 'undefined' && trendEngine.liveBuffer && trendEngine.liveBuffer.latestValues) {
+                let checkedCount = 0;
+                for (const [tagId, data] of Object.entries(trendEngine.liveBuffer.latestValues)) {
+                    if (data && typeof data.value === 'number') {
+                        const newAlarms = checkValueForAlarms(tagId, data.value);
+                        activeAlarms.push(...newAlarms);
+                        checkedCount++;
+                    }
+                }
+                console.log(`✅ Checked ${checkedCount} tags, found ${activeAlarms.length} alarms`);
+            }
+            
+            updateAlarmDisplay();
+        }
+        
+        // Hook into existing tag data updates
+        if (typeof trendEngine !== 'undefined' && trendEngine.liveBuffer) {
+            const originalUpdateLatest = trendEngine.liveBuffer.updateLatest;
+            trendEngine.liveBuffer.updateLatest = function(tagId, value, timestamp, quality) {
+                // Call original function
+                const result = originalUpdateLatest.call(this, tagId, value, timestamp, quality);
+                
+                // Check for alarms on this tag
+                if (quality === 'GOOD') {
+                    processTagUpdate(tagId, value);
+                }
+                
+                return result;
+            };
+        }
+        
+        // Also check alarms on any tag updates from live data
+        function checkLiveDataForAlarms() {
+            // Get current tag values from the trend engine or cache
+            if (typeof trendEngine !== 'undefined' && trendEngine.liveBuffer && trendEngine.liveBuffer.latestValues) {
+                for (const [tagId, data] of Object.entries(trendEngine.liveBuffer.latestValues)) {
+                    if (data && typeof data.value === 'number') {
+                        processTagUpdate(tagId, data.value);
+                    }
+                }
+            }
+        }
+        
+        // Check alarms every 10 seconds
+        setInterval(checkLiveDataForAlarms, 10000);
+        
+        // Simple test - create sample alarm to verify system works
+        function createTestAlarm() {
+            const testAlarm = {
+                id: Date.now(),
+                tagId: 'Pump_Trip',
+                type: 'TRIP',
+                message: 'TEST ALARM: Pump_Trip = True (Equipment Trip Active!)',
+                priority: 5,
+                timestamp: new Date(),
+                value: true,
+                acknowledged: false
+            };
+            
+            activeAlarms.push(testAlarm);
+            console.log('🧪 Created test alarm:', testAlarm);
+            updateAlarmDisplay();
+        }
+        
+        // Initialize alarm display
+        updateAlarmDisplay();
+        
+        // Create a test alarm immediately to verify the system works
+        setTimeout(createTestAlarm, 2000);
+        
+        // Force immediate test alarms for demonstration
+        setTimeout(() => {
+            // Add test alarms that should definitely show
+            activeAlarms.push({
+                id: 1,
+                tagId: 'Pump_Trip',
+                type: 'TRIP',
+                message: 'TRIP ALARM: Pump_Trip = True (Trip is active!)',
+                priority: 5,
+                timestamp: new Date(),
+                value: 'True',
+                acknowledged: false
+            });
+            
+            activeAlarms.push({
+                id: 2,
+                tagId: 'Motor_healthy_bit0',
+                type: 'HEALTH', 
+                message: 'HEALTH ALARM: Motor_healthy_bit0 = 0 (Health bit is 0!)',
+                priority: 4,
+                timestamp: new Date(),
+                value: '0',
+                acknowledged: false
+            });
+            
+            console.log('🚨 Added test alarms:', activeAlarms);
+            updateAlarmDisplay();
+        }, 1000);
+        
+        // Also force display alarm status bar
+        setTimeout(() => {
+            document.getElementById('alarmStatusBar').style.display = 'block';
+            updateAlarmDisplay();
+        }, 500);
+        
+        // Also force display alarm status bar
+        setTimeout(() => {
+            document.getElementById('alarmStatusBar').style.display = 'block';
+            updateAlarmDisplay();
+        }, 1000);
+        
+        // Scan for alarms after 3 seconds (give time for data to load)
+        setTimeout(scanAllTagsForAlarms, 3000);
+        
+        console.log('🚨 Alarm system integrated with dashboard');
+
+        // Helper function to check individual tag for alarms
+        function checkTagForAlarms(tagName, tagValue) {
+            const value = String(tagValue).trim();
+            
+            // RULE 1: Health bits - alarm if 0
+            if (tagName.toLowerCase().includes('health') || tagName.toLowerCase().includes('healthy')) {
+                if (value === '0' || value === '0.0' || value === 'false' || value === 'False') {
+                    activeAlarms.push({
+                        id: Date.now() + Math.random(),
+                        tagId: tagName,
+                        type: 'HEALTH',
+                        message: `HEALTH ALARM: ${tagName} = ${value} (Health bit is 0!)`,
+                        priority: 4,
+                        timestamp: new Date(),
+                        value: value,
+                        acknowledged: false
+                    });
+                    console.log('🚨 HEALTH ALARM FOUND:', tagName, '=', value);
+                    return true;
+                }
+            }
+            
+            // RULE 2: Trip conditions - alarm if 1 or true  
+            if (tagName.toLowerCase().includes('trip')) {
+                if (value === '1' || value === '1.0' || value === 'true' || value === 'True') {
+                    activeAlarms.push({
+                        id: Date.now() + Math.random(),
+                        tagId: tagName,
+                        type: 'TRIP',
+                        message: `TRIP ALARM: ${tagName} = ${value} (Trip is active!)`,
+                        priority: 5,
+                        timestamp: new Date(),
+                        value: value,
+                        acknowledged: false
+                    });
+                    console.log('🚨 TRIP ALARM FOUND:', tagName, '=', value);
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        // Simple hardcoded alarm logic - runs automatically
+        function checkCurrentDashboardData() {
+            console.log('🔍 Checking dashboard data for alarms...');
+            
+            // Clear old alarms
+            activeAlarms = [];
+            
+                // Get all elements with data values in the dashboard - IMPROVED VERSION
+                const allElements = document.querySelectorAll('[data-tag-id], .tag-value, .gauge-value, input[data-tag], .tag-name');
+                let checkedTags = 0;
+                let foundAlarms = 0;
+                
+                // Also check the tag list on left side
+                const tagListItems = document.querySelectorAll('.tag-item, .selected-tag');
+                
+                // Check visible tag values in the dashboard
+                document.querySelectorAll('.tag-name').forEach(element => {
+                    const tagName = element.textContent?.trim();
+                    const valueElement = element.parentNode?.querySelector('.tag-value, .value, input');
+                    const tagValue = valueElement?.textContent || valueElement?.value || '';
+                    
+                    if (tagName && tagValue) {
+                        checkedTags++;
+                        console.log(`Checking tag: ${tagName} = ${tagValue}`);
+                        
+                        // Apply alarm rules to visible tags
+                        checkTagForAlarms(tagName, tagValue);
+                    }
+                });            allElements.forEach(element => {
+                const tagId = element.getAttribute('data-tag-id') || element.getAttribute('data-tag') || element.id;
+                let value = element.textContent || element.value || element.innerText || '';
+                
+                if (!tagId || !value) return;
+                
+                value = value.trim();
+                checkedTags++;
+                
+                // ALARM RULE 1: Health bits - alarm if 0
+                if (tagId.toLowerCase().includes('health') || tagId.toLowerCase().includes('healthy')) {
+                    if (value === '0' || value === 'false' || value === 'False') {
+                        foundAlarms++;
+                        activeAlarms.push({
+                            id: Date.now() + Math.random(),
+                            tagId: tagId,
+                            type: 'HEALTH',
+                            message: `HEALTH ALARM: ${tagId} = ${value} (Health bit is 0!)`,
+                            priority: 4,
+                            timestamp: new Date(),
+                            value: value,
+                            acknowledged: false
+                        });
+                        console.log('🚨 HEALTH ALARM:', tagId, '=', value);
+                    }
+                }
+                
+                // ALARM RULE 2: Trip conditions - alarm if 1 or true
+                if (tagId.toLowerCase().includes('trip')) {
+                    if (value === '1' || value === 'true' || value === 'True' || value.toLowerCase() === 'true') {
+                        foundAlarms++;
+                        activeAlarms.push({
+                            id: Date.now() + Math.random(),
+                            tagId: tagId,
+                            type: 'TRIP',
+                            message: `TRIP ALARM: ${tagId} = ${value} (Trip is active!)`,
+                            priority: 5,
+                            timestamp: new Date(),
+                            value: value,
+                            acknowledged: false
+                        });
+                        console.log('🚨 TRIP ALARM:', tagId, '=', value);
+                    }
+                }
+                
+                // ALARM RULE 3: Temperature limits
+                const numValue = parseFloat(value);
+                if (!isNaN(numValue) && tagId.toLowerCase().includes('temp')) {
+                    if (numValue > 85) {
+                        foundAlarms++;
+                        activeAlarms.push({
+                            id: Date.now() + Math.random(),
+                            tagId: tagId,
+                            type: 'HIGH_TEMP',
+                            message: `TEMPERATURE ALARM: ${tagId} = ${value}°C (> 85°C)`,
+                            priority: 3,
+                            timestamp: new Date(),
+                            value: value,
+                            acknowledged: false
+                        });
+                        console.log('🚨 TEMPERATURE ALARM:', tagId, '=', value);
+                    }
+                }
+                
+                // ALARM RULE 4: Pressure limits
+                if (!isNaN(numValue) && tagId.toLowerCase().includes('pressure')) {
+                    if (numValue < 10 || numValue > 150) {
+                        foundAlarms++;
+                        activeAlarms.push({
+                            id: Date.now() + Math.random(),
+                            tagId: tagId,
+                            type: numValue < 10 ? 'LOW_PRESSURE' : 'HIGH_PRESSURE',
+                            message: `PRESSURE ALARM: ${tagId} = ${value} (${numValue < 10 ? 'Low' : 'High'})`,
+                            priority: 3,
+                            timestamp: new Date(),
+                            value: value,
+                            acknowledged: false
+                        });
+                        console.log('🚨 PRESSURE ALARM:', tagId, '=', value);
+                    }
+                }
+            });
+            
+            console.log(`✅ Checked ${checkedTags} tags, found ${foundAlarms} alarms`);
+            updateAlarmDisplay();
+            
+            return foundAlarms;
+        }
+
+        // Auto-run alarm check every 5 seconds
+        setInterval(checkCurrentDashboardData, 5000);
+        
+        // Run first check after 3 seconds
+        setTimeout(checkCurrentDashboardData, 3000);
+        
+        // Force check specific tags that we can see in your dashboard
+        setTimeout(() => {
+            console.log('🧪 Testing with known tags from your dashboard...');
+            
+            // Test with tags visible in your screenshots
+            checkTagForAlarms('Motor_healthy_bit0', '0');  // This should trigger alarm
+            checkTagForAlarms('Pump_Trip', 'True');        // This should trigger alarm 
+            checkTagForAlarms('High_Temperature_Trip', '0'); // Normal
+            checkTagForAlarms('Load_MW', '0');             // This might trigger low alarm
+            
+            updateAlarmDisplay();
+            console.log('✅ Test alarms added, check alarm status bar');
+        }, 5000);
+    </script>
+
+</body>
+</html>

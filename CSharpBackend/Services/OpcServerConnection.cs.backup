@@ -1,0 +1,541 @@
+using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+using OpcRcw.Da;
+using OpcRcw.Comn;
+
+namespace OpcDaWebBrowser.Services;
+
+/// <summary>
+/// Represents a single OPC DA server connection with polling mechanism
+/// </summary>
+public class OpcServerConnection : IDisposable
+{
+    public string ConnectionId { get; }
+    public string ServerProgID { get; }
+    public string ServerCLSID { get; }
+    public string Host { get; }
+    public bool IsLocal => string.IsNullOrEmpty(Host);
+    public DateTime ConnectedAt { get; private set; }
+    public DateTime LastPollTime { get; private set; }
+    public string Status { get; private set; } = "Disconnected";
+    
+    private IOPCServer? _opcServer;
+    private IOPCItemMgt? _itemMgt;
+    private int _groupHandle;
+    private readonly ConcurrentDictionary<string, TagMonitor> _monitoredTags = new();
+    private readonly object _lock = new();
+    private Timer? _pollingTimer;
+    private readonly int _pollingIntervalMs;
+
+    public int MonitoredTagCount => _monitoredTags.Count;
+    public bool IsConnected => _opcServer != null && Status == "Connected";
+
+    public event EventHandler<TagValuesEventArgs>? TagValuesUpdated;
+
+    public OpcServerConnection(string serverProgID, string host = "", string clsid = "", int pollingIntervalMs = 1000)
+    {
+        ServerProgID = serverProgID;
+        ServerCLSID = clsid ?? "";
+        Host = host ?? "";
+        _pollingIntervalMs = pollingIntervalMs;
+        ConnectionId = IsLocal ? serverProgID : $"{serverProgID}@{host}";
+    }
+
+    public void Connect()
+    {
+        lock (_lock)
+        {
+            if (IsConnected) return;
+
+            try
+            {
+                Console.WriteLine($"[OPC CONNECT] Begin connect: ProgID='{ServerProgID}', Host='{Host}', CLSID='{ServerCLSID}'");
+                Type? serverType = null;
+
+                // Try CLSID first (recommended for Windows XP compatibility)
+                if (!string.IsNullOrWhiteSpace(ServerCLSID))
+                {
+                    try
+                    {
+                        Console.WriteLine($"[OPC CONNECT] Using CLSID: {ServerCLSID}");
+                        string cleanClsid = ServerCLSID.Trim().Trim('{', '}');
+                        Console.WriteLine($"[OPC CONNECT] Cleaned CLSID: {cleanClsid}");
+                        Guid clsidGuid = Guid.Parse(cleanClsid);
+                        Console.WriteLine($"[OPC CONNECT] Parsed GUID: {clsidGuid}");
+                        Console.WriteLine($"[OPC CONNECT] Getting type from CLSID for host: {(IsLocal ? "LOCAL" : Host)}");
+                        serverType = IsLocal
+                            ? Type.GetTypeFromCLSID(clsidGuid)
+                            : Type.GetTypeFromCLSID(clsidGuid, Host);
+                        Console.WriteLine($"[OPC CONNECT] Type from CLSID: {(serverType != null ? "SUCCESS" : "NULL")}");
+                    }
+                    catch (Exception clsidEx)
+                    {
+                        Console.WriteLine($"[OPC CONNECT ERROR] CLSID failed: {clsidEx.Message}");
+                        throw new Exception($"Invalid CLSID format '{ServerCLSID}': {clsidEx.Message}");
+                    }
+                }
+                // Fallback to ProgID (may fail on Windows XP)
+                else
+                {
+                    Console.WriteLine($"[OPC CONNECT] Using ProgID: {ServerProgID}");
+                    serverType = IsLocal
+                        ? Type.GetTypeFromProgID(ServerProgID)
+                        : Type.GetTypeFromProgID(ServerProgID, Host);
+                    Console.WriteLine($"[OPC CONNECT] Type from ProgID: {(serverType != null ? "SUCCESS" : "NULL")}");
+                }
+
+                if (serverType == null)
+                {
+                    string errorMsg = !string.IsNullOrWhiteSpace(ServerCLSID)
+                        ? $"Cannot create type from CLSID '{ServerCLSID}' on {(IsLocal ? "local machine" : $"remote host '{Host}'")}."
+                        : IsLocal 
+                            ? $"Cannot find ProgID '{ServerProgID}' on local machine. Ensure OPC server is installed."
+                            : $"Cannot find ProgID '{ServerProgID}' on remote host '{Host}'. For Windows XP, use CLSID instead.";
+                    Console.WriteLine($"[OPC CONNECT ERROR] {errorMsg}");
+                    throw new Exception(errorMsg);
+                }
+
+                Console.WriteLine($"[OPC CONNECT] Creating Activator instance...");
+                _opcServer = (IOPCServer)Activator.CreateInstance(serverType)!;
+                Console.WriteLine($"[OPC CONNECT] Activator instance created successfully");
+                ConnectedAt = DateTime.Now;
+                Status = "Connected";
+
+                // Create OPC group for tag monitoring
+                Guid iid = typeof(IOPCItemMgt).GUID;
+                _opcServer.AddGroup(
+                    $"Group_{ConnectionId}",
+                    1, // Active
+                    _pollingIntervalMs,
+                    0,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    0,
+                    out _groupHandle,
+                    out int _,
+                    ref iid,
+                    out object group);
+
+                _itemMgt = (IOPCItemMgt)group;
+
+                // Start polling timer
+                _pollingTimer = new Timer(PollTags, null, _pollingIntervalMs, _pollingIntervalMs);
+            }
+            catch (COMException comEx)
+            {
+                string errorDetail = comEx.ErrorCode switch
+                {
+                    unchecked((int)0x80070005) => $"Access Denied (0x80070005). DCOM permissions required for remote host '{Host}'. Configure DCOM security.",
+                    unchecked((int)0x800706BA) => $"RPC Server Unavailable (0x800706BA). Remote host '{Host}' not reachable or firewall blocking.",
+                    unchecked((int)0x80080005) => $"Server Execution Failed (0x80080005). OPC server '{ServerProgID}' cannot start on '{Host}'.",
+                    unchecked((int)0x800401F0) => $"Class Not Registered (0x800401F0). OPC server '{ServerProgID}' not installed on '{Host}'.",
+                    _ => $"COM Error (0x{comEx.ErrorCode:X8}): {comEx.Message}"
+                };
+                Status = $"Error: {errorDetail}";
+                Cleanup();
+                throw new Exception(errorDetail, comEx);
+            }
+            catch (Exception ex)
+            {
+                Status = $"Error: {ex.Message}";
+                Cleanup();
+                throw;
+            }
+        }
+    }
+
+    public void Disconnect()
+    {
+        lock (_lock)
+        {
+            _pollingTimer?.Dispose();
+            _pollingTimer = null;
+
+            if (_itemMgt != null && _groupHandle != 0 && _opcServer != null)
+            {
+                try
+                {
+                    _opcServer.RemoveGroup(_groupHandle, 0);
+                }
+                catch { }
+            }
+
+            Cleanup();
+            Status = "Disconnected";
+        }
+    }
+
+    private void Cleanup()
+    {
+        _groupHandle = 0;
+        _itemMgt = null;
+
+        if (_opcServer != null)
+        {
+            try { Marshal.ReleaseComObject(_opcServer); } catch { }
+            _opcServer = null;
+        }
+
+        _monitoredTags.Clear();
+    }
+
+    public List<TagInfo> BrowseTags()
+    {
+        lock (_lock)
+        {
+            if (_opcServer == null)
+                throw new Exception("Not connected to server");
+
+            List<TagInfo> tags = new();
+            IOPCBrowseServerAddressSpace? browser = _opcServer as IOPCBrowseServerAddressSpace;
+
+            if (browser == null)
+            {
+                Console.WriteLine("[OPC BROWSE] Server does not support browsing, returning simulation tags");
+                return GetKnownSimulationTags();
+            }
+
+            try
+            {
+                Console.WriteLine("[OPC BROWSE] Starting hierarchical browse from root");
+                browser.ChangeBrowsePosition(OPCBROWSEDIRECTION.OPC_BROWSE_TO, "");
+                BrowseRecursive(browser, "", tags);
+                Console.WriteLine($"[OPC BROWSE] Hierarchical browse complete: {tags.Count} items found");
+                
+                // If no tags found with hierarchical browse, try flat namespace
+                if (tags.Count == 0)
+                {
+                    Console.WriteLine("[OPC BROWSE] No tags in hierarchical browse, trying flat namespace");
+                    tags = BrowseFlatNamespace(browser);
+                    Console.WriteLine($"[OPC BROWSE] Flat browse complete: {tags.Count} items found");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[OPC BROWSE ERROR] Browse failed: {ex.Message}");
+                Console.WriteLine("[OPC BROWSE] Returning simulation tags as fallback");
+                return GetKnownSimulationTags();
+            }
+
+            return tags.Count > 0 ? tags : GetKnownSimulationTags();
+        }
+    }
+
+    private List<TagInfo> BrowseFlatNamespace(IOPCBrowseServerAddressSpace browser)
+    {
+        List<TagInfo> tags = new();
+        try
+        {
+            // Try to get all items in flat namespace
+            browser.ChangeBrowsePosition(OPCBROWSEDIRECTION.OPC_BROWSE_TO, "");
+            
+            // Get all leaves (actual tags)
+            string[] leaves = GetBrowseItems(browser, OPCBROWSETYPE.OPC_LEAF);
+            Console.WriteLine($"[OPC BROWSE FLAT] Found {leaves.Length} leaf items");
+            
+            foreach (string leaf in leaves)
+            {
+                string itemID = leaf;
+                try
+                {
+                    browser.GetItemID(leaf, out string fullItemID);
+                    if (!string.IsNullOrEmpty(fullItemID))
+                        itemID = fullItemID;
+                }
+                catch
+                {
+                    // Use leaf name as-is if GetItemID fails
+                }
+
+                tags.Add(new TagInfo
+                {
+                    Name = leaf,
+                    ItemID = itemID,
+                    IsFolder = false,
+                    Path = "",
+                    ServerConnection = ConnectionId
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[OPC BROWSE FLAT ERROR] {ex.Message}");
+        }
+        return tags;
+    }
+
+    private void BrowseRecursive(IOPCBrowseServerAddressSpace browser, string currentPath, List<TagInfo> tags)
+    {
+        try
+        {
+            // Get branches
+            string[] branches = GetBrowseItems(browser, OPCBROWSETYPE.OPC_BRANCH);
+            foreach (string branch in branches)
+            {
+                string path = string.IsNullOrEmpty(currentPath) ? branch : $"{currentPath}.{branch}";
+                tags.Add(new TagInfo 
+                { 
+                    Name = branch, 
+                    ItemID = path, 
+                    IsFolder = true, 
+                    Path = currentPath,
+                    ServerConnection = ConnectionId
+                });
+
+                try
+                {
+                    browser.ChangeBrowsePosition(OPCBROWSEDIRECTION.OPC_BROWSE_DOWN, branch);
+                    BrowseRecursive(browser, path, tags);
+                    browser.ChangeBrowsePosition(OPCBROWSEDIRECTION.OPC_BROWSE_UP, "");
+                }
+                catch { }
+            }
+
+            // Get leaves
+            string[] leaves = GetBrowseItems(browser, OPCBROWSETYPE.OPC_LEAF);
+            foreach (string leaf in leaves)
+            {
+                string itemID;
+                try
+                {
+                    browser.GetItemID(leaf, out itemID);
+                }
+                catch
+                {
+                    itemID = string.IsNullOrEmpty(currentPath) ? leaf : $"{currentPath}.{leaf}";
+                }
+
+                tags.Add(new TagInfo 
+                { 
+                    Name = leaf, 
+                    ItemID = itemID, 
+                    IsFolder = false, 
+                    Path = currentPath,
+                    ServerConnection = ConnectionId
+                });
+            }
+        }
+        catch { }
+    }
+
+    private string[] GetBrowseItems(IOPCBrowseServerAddressSpace browser, OPCBROWSETYPE browseType)
+    {
+        try
+        {
+            browser.BrowseOPCItemIDs(browseType, "", 0, 0, out OpcRcw.Da.IEnumString? enumString);
+            if (enumString == null) return Array.Empty<string>();
+
+            List<string> items = new();
+            string[] buffer = new string[100];
+
+            while (true)
+            {
+                enumString.RemoteNext(100, buffer, out int fetched);
+                if (fetched == 0) break;
+
+                for (int i = 0; i < fetched; i++)
+                {
+                    if (!string.IsNullOrEmpty(buffer[i]))
+                        items.Add(buffer[i]);
+                }
+
+                if (fetched < 100) break;
+            }
+
+            Marshal.ReleaseComObject(enumString);
+            return items.ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private List<TagInfo> GetKnownSimulationTags()
+    {
+        return new List<TagInfo>
+        {
+            new() { Name = "Random.Int4", ItemID = "Random.Int4", IsFolder = false, ServerConnection = ConnectionId },
+            new() { Name = "Random.Real8", ItemID = "Random.Real8", IsFolder = false, ServerConnection = ConnectionId },
+            new() { Name = "Random.String", ItemID = "Random.String", IsFolder = false, ServerConnection = ConnectionId },
+            new() { Name = "Bucket Brigade.Int4", ItemID = "Bucket Brigade.Int4", IsFolder = false, ServerConnection = ConnectionId }
+        };
+    }
+
+    public void AddTag(string itemID, string displayName)
+    {
+        lock (_lock)
+        {
+            if (_itemMgt == null)
+                throw new Exception("Not connected");
+
+            if (_monitoredTags.ContainsKey(itemID))
+                return;
+
+            OPCITEMDEF[] itemDefs = new[]
+            {
+                new OPCITEMDEF
+                {
+                    szItemID = itemID,
+                    bActive = 1,
+                    hClient = _monitoredTags.Count + 1,
+                    dwBlobSize = 0,
+                    pBlob = IntPtr.Zero,
+                    vtRequestedDataType = 0
+                }
+            };
+
+            _itemMgt.AddItems(1, itemDefs, out IntPtr resultsPtr, out IntPtr errorsPtr);
+
+            OPCITEMRESULT result = (OPCITEMRESULT)Marshal.PtrToStructure(resultsPtr, typeof(OPCITEMRESULT))!;
+            int[] errors = new int[1];
+            Marshal.Copy(errorsPtr, errors, 0, 1);
+
+            Marshal.FreeCoTaskMem(resultsPtr);
+            Marshal.FreeCoTaskMem(errorsPtr);
+
+            if (errors[0] != 0)
+                throw new Exception($"Failed to add tag: 0x{errors[0]:X8}");
+
+            _monitoredTags[itemID] = new TagMonitor
+            {
+                ItemID = itemID,
+                DisplayName = displayName,
+                ServerHandle = result.hServer,
+                ServerConnection = ConnectionId
+            };
+        }
+    }
+
+    public void RemoveTag(string itemID)
+    {
+        lock (_lock)
+        {
+            if (_monitoredTags.TryRemove(itemID, out var tag) && _itemMgt != null)
+            {
+                try
+                {
+                    int[] handles = new[] { tag.ServerHandle };
+                    _itemMgt.RemoveItems(1, handles, out IntPtr errorsPtr);
+                    Marshal.FreeCoTaskMem(errorsPtr);
+                }
+                catch { }
+            }
+        }
+    }
+
+    private void PollTags(object? state)
+    {
+        if (!IsConnected || _itemMgt == null || _monitoredTags.Count == 0)
+            return;
+
+        try
+        {
+            var values = ReadTagValues();
+            LastPollTime = DateTime.Now;
+
+            if (values.Count > 0)
+            {
+                TagValuesUpdated?.Invoke(this, new TagValuesEventArgs 
+                { 
+                    Values = values,
+                    ServerConnection = ConnectionId
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = $"Poll Error: {ex.Message}";
+        }
+    }
+
+    public List<TagValue> ReadTagValues()
+    {
+        lock (_lock)
+        {
+            if (_itemMgt == null || _monitoredTags.Count == 0)
+                return new List<TagValue>();
+
+            List<TagValue> values = new();
+
+            try
+            {
+                int[] handles = _monitoredTags.Values.Select(t => t.ServerHandle).ToArray();
+
+                IOPCSyncIO syncIO = (IOPCSyncIO)_itemMgt;
+                syncIO.Read(OPCDATASOURCE.OPC_DS_DEVICE, handles.Length, handles,
+                    out IntPtr valuesPtr, out IntPtr errorsPtr);
+
+                for (int i = 0; i < handles.Length; i++)
+                {
+                    IntPtr itemPtr = IntPtr.Add(valuesPtr, i * Marshal.SizeOf(typeof(OPCITEMSTATE)));
+                    OPCITEMSTATE state = (OPCITEMSTATE)Marshal.PtrToStructure(itemPtr, typeof(OPCITEMSTATE))!;
+
+                    var tag = _monitoredTags.Values.ElementAt(i);
+                    string quality = state.wQuality == 192 ? "GOOD" :
+                                   state.wQuality >= 64 && state.wQuality < 128 ? "UNCERTAIN" : "BAD";
+
+                    long fileTime = ((long)state.ftTimeStamp.dwHighDateTime << 32) | (uint)state.ftTimeStamp.dwLowDateTime;
+                    DateTime timestamp = fileTime > 0 ? DateTime.FromFileTime(fileTime) : DateTime.Now;
+
+                    values.Add(new TagValue
+                    {
+                        ItemID = tag.ItemID,
+                        DisplayName = tag.DisplayName,
+                        Value = state.vDataValue?.ToString() ?? "null",
+                        Quality = quality,
+                        Timestamp = timestamp,
+                        DataType = state.vDataValue?.GetType().Name ?? "Unknown",
+                        ServerConnection = ConnectionId
+                    });
+                }
+
+                Marshal.FreeCoTaskMem(valuesPtr);
+                Marshal.FreeCoTaskMem(errorsPtr);
+            }
+            catch { }
+
+            return values;
+        }
+    }
+
+    public void Dispose()
+    {
+        Disconnect();
+    }
+}
+
+public class TagMonitor
+{
+    public required string ItemID { get; set; }
+    public required string DisplayName { get; set; }
+    public required int ServerHandle { get; set; }
+    public required string ServerConnection { get; set; }
+}
+
+public class TagInfo
+{
+    public required string Name { get; set; }
+    public required string ItemID { get; set; }
+    public required bool IsFolder { get; set; }
+    public string Path { get; set; } = "";
+    public string DataType { get; set; } = "Variant";
+    public required string ServerConnection { get; set; }
+}
+
+public class TagValue
+{
+    public required string ItemID { get; set; }
+    public required string DisplayName { get; set; }
+    public required string Value { get; set; }
+    public required string Quality { get; set; }
+    public required DateTime Timestamp { get; set; }
+    public required string DataType { get; set; }
+    public required string ServerConnection { get; set; }
+}
+
+public class TagValuesEventArgs : EventArgs
+{
+    public required List<TagValue> Values { get; set; }
+    public required string ServerConnection { get; set; }
+}

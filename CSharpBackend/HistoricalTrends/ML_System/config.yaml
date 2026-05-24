@@ -1,0 +1,251 @@
+# ML Learning System Configuration
+# This file controls all system behavior - NO HARDCODING in code
+
+# ============================================================================
+# STORAGE CONFIGURATION
+# ============================================================================
+storage:
+  # During testing phase - use CSV for easy inspection
+  testing_mode: true
+  testing_format: "csv"  # Change to "parquet" when ready for production
+  
+  # Production mode - high performance parquet
+  production_format: "parquet"
+  compression: "snappy"  # Fast compression
+  
+  # Base directories
+  base_path: "./ML_System/Data"
+  models_path: "./ML_System/Models"
+  logs_path: "./ML_System/Logs"
+
+# ============================================================================
+# DATA COLLECTION
+# ============================================================================
+data_collection:
+  # How often to collect data (seconds)
+  interval_seconds: 60
+  
+  # Parameter discovery - NO hardcoded lists!
+  auto_discover_parameters: true
+  parameter_source: "opc_server"  # or "csv_files" or "database"
+  
+  # Data retention
+  keep_raw_data_days: 90
+  keep_analysis_data_days: 365
+  keep_model_versions: 50
+
+# ============================================================================
+# MODEL CONFIGURATION
+# ============================================================================
+models:
+  # Which models to test (system will try ALL of them)
+  enabled_models:
+    - name: "RandomForest"
+      library: "sklearn"
+      active: true
+      
+    - name: "XGBoost"
+      library: "xgboost"
+      active: true
+      
+    - name: "LightGBM"
+      library: "lightgbm"
+      active: true
+      
+    - name: "LSTM"
+      library: "pytorch"
+      active: true
+      
+    - name: "Prophet"
+      library: "prophet"
+      active: true
+      
+    - name: "IsolationForest"
+      library: "sklearn"
+      active: true
+      purpose: "anomaly_detection"
+      
+    - name: "Ensemble"
+      library: "custom"
+      active: true
+      combines: ["RandomForest", "XGBoost", "LightGBM"]
+
+  # Training schedule
+  training:
+    initial_training_days: 30  # Need 30 days data before first training
+    retrain_interval_hours: 12
+    validation_split: 0.2
+    target_column: "TURBINE_LOADMW"  # Column to predict
+    
+  # Prediction horizon
+  prediction:
+    health_forecast_hours: 24
+    output_forecast_hours: 48
+    efficiency_forecast_hours: 24
+    target_column: "TURBINE_LOADMW"  # Column to predict
+
+# ============================================================================
+# PARAMETER DISCOVERY
+# ============================================================================
+parameter_discovery:
+  # Target column to predict
+  target_column: "TURBINE_LOADMW"
+  
+  # Statistical thresholds for importance
+  min_correlation_threshold: 0.3
+  min_variance_threshold: 0.01
+  min_data_availability: 0.8  # 80% non-null values required
+  
+  # Feature engineering
+  auto_create_derived_features: true
+  rolling_windows: [5, 15, 30, 60]  # minutes
+  lag_features: [1, 5, 15, 30, 60]  # minutes
+  
+  # Feature selection methods
+  selection_methods:
+    - "correlation_analysis"
+    - "mutual_information"
+    - "feature_importance"
+    - "recursive_elimination"
+    - "pca_analysis"
+
+# ============================================================================
+# FEEDBACK LOOPS
+# ============================================================================
+feedback:
+  # Prediction validation
+  validation_delay_hours: 24  # Wait for actual results
+  
+  # Weight adjustment
+  learning_rate: 0.01
+  learning_rate_decay: 0.95
+  min_learning_rate: 0.001
+  
+  # Model performance tracking
+  track_metrics:
+    - "mae"  # Mean Absolute Error
+    - "rmse"  # Root Mean Square Error
+    - "mape"  # Mean Absolute Percentage Error
+    - "r2"   # R-squared
+    - "accuracy"
+    
+  # Auto model selection
+  model_selection_window_days: 7
+  min_accuracy_threshold: 0.75  # 75% accuracy minimum
+
+# ============================================================================
+# OPTIMIZATION EXPERIMENTS
+# ============================================================================
+optimization:
+  # Safety limits for parameter changes
+  enable_auto_optimization: false  # Start with false, enable after validation
+  
+  max_change_percentage: 2.0  # Max 2% change per experiment
+  
+  # Experiment scheduling
+  experiment_interval_hours: 8
+  experiment_duration_minutes: 60
+  
+  # Success criteria
+  min_improvement_percentage: 0.5  # Must improve by 0.5%
+  max_negative_side_effects: 3  # Max 3 parameters can worsen
+
+# ============================================================================
+# TURBINE-GENERATOR SPECIFIC
+# ============================================================================
+turbine_generator:
+  # Plant specs (from config, not hardcoded)
+  rated_capacity_mw: 270.0
+  
+  # Critical thresholds (learned from data, these are just initial)
+  initial_thresholds:
+    vibration_alarm_mm_s: 7.5
+    vibration_trip_mm_s: 11.0
+    max_temperature_c: 120.0
+    min_vacuum_mmhg: -680.0
+  
+  # System will learn actual safe operating ranges from data
+  learn_operating_envelopes: true
+
+# ============================================================================
+# HEALTH SCORING
+# ============================================================================
+health_scoring:
+  # NO predefined weights - system learns these
+  auto_discover_health_indicators: true
+  
+  # Health categories to discover
+  categories:
+    - "mechanical_health"
+    - "electrical_health"
+    - "thermal_health"
+    - "vibration_health"
+    - "efficiency_health"
+    - "auxiliary_health"
+  
+  # Degradation detection
+  degradation_window_days: 30
+  degradation_threshold_percentage: 5.0  # 5% decline = concern
+
+# ============================================================================
+# LOGGING AND MONITORING
+# ============================================================================
+logging:
+  # Log levels
+  console_level: "INFO"
+  file_level: "DEBUG"
+  
+  # Performance logging
+  log_model_performance: true
+  log_prediction_accuracy: true
+  log_optimization_results: true
+  log_parameter_importance: true
+  
+  # CSV vs Parquet logging (follows testing_mode)
+  use_testing_format: true
+
+# ============================================================================
+# BACKGROUND PROCESSES
+# ============================================================================
+processes:
+  data_collector:
+    enabled: true
+    interval_seconds: 60
+    
+  parameter_discovery:
+    enabled: true
+    interval_hours: 6
+    
+  model_trainer:
+    enabled: true
+    interval_hours: 12
+    
+  prediction_validator:
+    enabled: true
+    interval_hours: 24
+    
+  weight_adjuster:
+    enabled: true
+    interval_hours: 24
+    
+  optimization_experimenter:
+    enabled: false  # Enable after validation phase
+    interval_hours: 8
+    
+  model_selector:
+    enabled: true
+    interval_days: 7
+
+# ============================================================================
+# TESTING CONFIGURATION
+# ============================================================================
+testing:
+  # Use smaller datasets during testing
+  sample_data_percentage: 100  # 100% = full data
+  
+  # Fast iteration during development
+  accelerated_learning: false
+  
+  # Mock data generation for testing without real plant
+  use_mock_data: false
+  mock_data_days: 90

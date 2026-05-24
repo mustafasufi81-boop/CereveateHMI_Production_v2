@@ -1,0 +1,116 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x86</PlatformTarget>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <OutputType>WinExe</OutputType>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <Company>Cereveate_Praxis</Company>
+    <Product>Cereveate_Praxis OPC Server</Product>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="OpcRcw.Da">
+      <HintPath>C:\Windows\Microsoft.NET\assembly\GAC_MSIL\OpcRcw.Da\v4.0_3.0.3.0__78aea80f6827b5ab\OpcRcw.Da.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="OpcRcw.Comn">
+      <HintPath>C:\Windows\Microsoft.NET\assembly\GAC_MSIL\OpcRcw.Comn\v4.0_1.10.2.0__78aea80f6827b5ab\OpcRcw.Comn.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="8.0.4" />
+    <PackageReference Include="Parquet.Net" Version="5.3.0" />
+    <PackageReference Include="Serilog.Extensions.Logging.File" Version="3.0.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="Opc.UaFx.Client" Version="2.41.0" />
+    <!-- PLC Gateway Dependencies -->
+    <PackageReference Include="NModbus" Version="3.0.81" />
+    <PackageReference Include="S7netplus" Version="0.20.0" />
+    <PackageReference Include="libplctag" Version="1.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="LogViewerTest\**" />
+    <Content Remove="LogViewerTest\**" />
+    <EmbeddedResource Remove="LogViewerTest\**" />
+    <None Remove="LogViewerTest\**" />
+    <Compile Remove="Site_Ready-Checking\**" />
+    <Content Remove="Site_Ready-Checking\**" />
+    <EmbeddedResource Remove="Site_Ready-Checking\**" />
+    <None Remove="Site_Ready-Checking\**" />
+    <!-- PLC Gateway - Now enabled with unified types -->
+    <Compile Remove="LicenseGenerator\**" />
+    <Content Remove="LicenseGenerator\**" />
+    <EmbeddedResource Remove="LicenseGenerator\**" />
+    <None Remove="LicenseGenerator\**" />
+    <Compile Remove="TestMappingDir\**" />
+    <Content Remove="TestMappingDir\**" />
+    <EmbeddedResource Remove="TestMappingDir\**" />
+    <None Remove="TestMappingDir\**" />
+    <Compile Remove="ManualTagInsert\**" />
+    <Content Remove="ManualTagInsert\**" />
+    <EmbeddedResource Remove="ManualTagInsert\**" />
+    <None Remove="ManualTagInsert\**" />
+    <Compile Remove="ColumnCheck\**" />
+    <Content Remove="ColumnCheck\**" />
+    <EmbeddedResource Remove="ColumnCheck\**" />
+    <None Remove="ColumnCheck\**" />
+    <Compile Remove="DeleteTag\**" />
+    <Content Remove="DeleteTag\**" />
+    <EmbeddedResource Remove="DeleteTag\**" />
+    <None Remove="DeleteTag\**" />
+    <Compile Remove="CheckData\**" />
+    <Content Remove="CheckData\**" />
+    <EmbeddedResource Remove="CheckData\**" />
+    <None Remove="CheckData\**" />
+    <Compile Remove="CheckTable\**" />
+    <Content Remove="CheckTable\**" />
+    <EmbeddedResource Remove="CheckTable\**" />
+    <None Remove="CheckTable\**" />
+    <Compile Remove="TestWrite\**" />
+    <Content Remove="TestWrite\**" />
+    <EmbeddedResource Remove="TestWrite\**" />
+    <None Remove="TestWrite\**" />
+    <Compile Remove="FixColumn\**" />
+    <Content Remove="FixColumn\**" />
+    <EmbeddedResource Remove="FixColumn\**" />
+    <None Remove="FixColumn\**" />
+    <Compile Remove="RecreateTable\**" />
+    <Content Remove="RecreateTable\**" />
+    <EmbeddedResource Remove="RecreateTable\**" />
+    <None Remove="RecreateTable\**" />
+    <Compile Remove="FixTableFinal\**" />
+    <Content Remove="FixTableFinal\**" />
+    <EmbeddedResource Remove="FixTableFinal\**" />
+    <None Remove="FixTableFinal\**" />
+    <Compile Remove="Tools\**" />
+    <Content Remove="Tools\**" />
+    <EmbeddedResource Remove="Tools\**" />
+    <None Remove="Tools\**" />
+    <Compile Remove="**\*_OLD.cs" />
+    <Compile Remove="TestOpcConnection.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CRITICAL: Never overwrite user's runtime config file during build -->
+    <Content Remove="logging-config.json" />
+    <None Include="logging-config.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

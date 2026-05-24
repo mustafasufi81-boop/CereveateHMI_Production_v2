@@ -1,0 +1,156 @@
+SOURCE CODE PATH:D:\Development\New_Developement\WORKING_BACKUP_20251114_213937
+
+MODULE DETAILS:
+
+1. Program.cs
+
+Path: Program.cs
+Purpose: Application entry point, configures web server, registers services, sets up SignalR
+Key: Single-instance mutex, port 6001, session management
+2. OpcDaWebBrowser.csproj
+
+Path: OpcDaWebBrowser.csproj
+Purpose: Project file with dependencies, build configuration
+Key: Target framework net8.0, win-x86, self-contained
+3. OpcController.cs
+
+Path: OpcController.cs
+Purpose: REST API endpoints for OPC operations
+Methods: GetServers, BrowseTags, Connect, Disconnect
+4. AccountController.cs
+
+Path: AccountController.cs
+Purpose: User authentication endpoints
+Methods: Login, Logout, ChangePassword, ManageUsers
+5. BackupController.cs
+
+Path: BackupController.cs
+Purpose: Log file backup operations
+Methods: CreateBackup, RestoreBackup, DownloadBackup
+6. FilesController.cs
+
+Path: FilesController.cs
+Purpose: File management for logs
+Methods: ListFiles, DownloadFile, DeleteFile
+7. OpcDaService.cs
+
+Path: OpcDaService.cs
+Purpose: Main OPC DA service, manages multiple server connections
+Key Methods: Connect(serverProgID, host, clsid), AddServerConnection, GetTagValue, BrowseTags
+Maintains dictionary of active server connections
+8. OpcServerConnection.cs
+
+Path: OpcServerConnection.cs
+Purpose: CORE OPC connection class with CLSID support for Windows XP
+Constructor: OpcServerConnection(serverProgID, host, clsid, pollingIntervalMs)
+Key Logic: Try CLSID first using Type.GetTypeFromCLSID, fallback to ProgID
+Methods: Connect, Disconnect, AddTag, RemoveTag, GetTagValue, BrowseTags
+Polling: Background thread reads tag values at specified interval
+9. OpcServerBrowser.cs
+
+Path: OpcServerBrowser.cs
+Purpose: Browse OPC servers on network
+Methods: GetServersOnNetwork, GetLocalServers
+10. OpcServerDiscovery.cs
+
+Path: OpcServerDiscovery.cs
+Purpose: Discover available OPC servers on local/remote machines
+Methods: DiscoverServers(hostname)
+11. DataLoggingService.cs
+
+Path: DataLoggingService.cs
+Purpose: Background service to log tag data to CSV files
+Creates dedicated OPC connection for logging
+Writes data to bin/Logs/OpcData_YYYYMMDD_HHMMSS.csv
+Uses logging-config.json for configuration
+12. TrendDataService.cs
+
+Path: TrendDataService.cs
+Purpose: Read historical data from CSV logs for charts
+Methods: GetTrendData(tagId, startTime, endTime)
+13. AuthenticationService.cs
+
+Path: AuthenticationService.cs
+Purpose: User authentication and credential management
+Default user: opcadmin / admin123
+Credentials stored encrypted in .credentials file
+Currently bypassed in Login.cshtml.cs
+14. LoggingConfigService.cs
+
+Path: LoggingConfigService.cs
+Purpose: Manage logging configuration
+Reads/writes logging-config.json
+Stores server connection, selected tags, intervals
+15. LogBackupService.cs
+
+Path: LogBackupService.cs
+Purpose: Backup and restore log files
+Methods: CreateBackup, RestoreBackup, ListBackups
+16. LogFileReaderService.cs
+
+Path: LogFileReaderService.cs
+Purpose: Read and parse CSV log files
+Methods: ReadLogFile, GetAvailableLogFiles
+17. CredentialEncryptionService.cs
+
+Path: CredentialEncryptionService.cs
+Purpose: Encrypt/decrypt credentials using hardware ID
+Methods: Encrypt, Decrypt
+18. OpcAutoConnectService.cs
+
+Path: OpcAutoConnectService.cs
+Purpose: Auto-connect to OPC server on startup
+Reads configuration and connects automatically
+19. OpcDaBackgroundService.cs
+
+Path: OpcDaBackgroundService.cs
+Purpose: Background worker for OPC operations
+Handles periodic tasks
+20. OpcDaHub.cs
+
+Path: OpcDaHub.cs
+Purpose: SignalR hub for real-time communication with browser
+Methods: ConnectToRemoteServer(serverProgID, hostname, clsid), AddTag, RemoveTag, BrowseTags
+Sends real-time tag updates to connected clients
+Bridge between web UI and OpcDaService
+21. Index.cshtml
+
+Path: Index.cshtml
+Purpose: Main UI page - tag monitoring, connection management
+Contains JavaScript SignalR client
+Input fields: Server Name, Host IP, CLSID for XP
+Displays real-time tag values in table
+22. Index.cshtml.cs
+
+Path: Index.cshtml.cs
+Purpose: Backend code for Index page
+PageModel class
+23. Login.cshtml
+
+Path: Login.cshtml
+Purpose: Login page UI
+Username and password input fields
+24. Login.cshtml.cs
+
+Path: Login.cshtml.cs
+Purpose: Login backend - MODIFIED to auto-login without validation
+OnPost method bypasses authentication, sets session directly
+25. TestConnection.cshtml
+
+Path: TestConnection.cshtml
+Purpose: Test page for CLSID vs ProgID connections
+Standalone testing interface
+26. TestConnection.cshtml.cs
+
+Path: TestConnection.cshtml.cs
+Purpose: Backend for test page
+Methods: TestProgID, TestCLSID
+27. logging-config.json
+
+Path: logging-config.json
+Purpose: Configuration file for data logging
+Contains: server connection, selected tags, intervals, encryption settings
+
+back up path
+
+D:\Development\New_Developement\BACKUP_BEFORE_FLAT_BROWSE_FIX_20251117_203447

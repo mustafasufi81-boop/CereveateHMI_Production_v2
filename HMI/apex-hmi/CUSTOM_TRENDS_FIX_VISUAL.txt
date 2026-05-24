@@ -1,0 +1,160 @@
+╔══════════════════════════════════════════════════════════════════╗
+║          CUSTOM TRENDS FIX - VISUAL SUMMARY                      ║
+╚══════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────┐
+│ PROBLEM: Missing Data When Selecting Custom Date Ranges         │
+└──────────────────────────────────────────────────────────────────┘
+
+BEFORE FIX:
+┌─────────────────────────────────────────────────────────────────┐
+│ CUSTOM RANGE:  FROM: [Feb 01, 2026 ▼]  TO: [Feb 03, 2026 ▼]   │
+│                      (date only)           (date only)          │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    Actual Query Sent:
+        Start: 2026-02-01 00:00:00 (midnight)
+        End:   2026-02-03 00:00:00 (midnight)
+                              ↓
+                    ❌ RESULT: Only 2 days!
+        ┌─────────────┬─────────────┬─────────────┐
+        │  Feb 01     │  Feb 02     │  Feb 03     │
+        │  ████████   │  ████████   │  [EMPTY]    │
+        │  (full day) │  (full day) │  (missing)  │
+        └─────────────┴─────────────┴─────────────┘
+
+
+AFTER FIX:
+┌─────────────────────────────────────────────────────────────────┐
+│ CUSTOM RANGE:  FROM: [Feb 01, 2026 00:00 ▼]                    │
+│                      (date + time)                              │
+│                TO: [Feb 03, 2026 23:59 ▼]                       │
+│                    (date + time)                                │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    Actual Query Sent:
+        Start: 2026-02-01 00:00:00 (start of day)
+        End:   2026-02-03 23:59:00 (end of day)
+                              ↓
+                    ✅ RESULT: All 3 days!
+        ┌─────────────┬─────────────┬─────────────┐
+        │  Feb 01     │  Feb 02     │  Feb 03     │
+        │  ████████   │  ████████   │  ████████   │
+        │  (full day) │  (full day) │  (full day) │
+        └─────────────┴─────────────┴─────────────┘
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ CHANGES MADE                                                     │
+└──────────────────────────────────────────────────────────────────┘
+
+FILE: apex-hmi/src/components/hmi/IndustrialHMIPrototype.tsx
+
+✅ Change 1: Date Input Type (Lines 1587 & 1603)
+   OLD: <input type="date" ... />
+   NEW: <input type="datetime-local" ... />
+
+✅ Change 2: Enhanced Validation (Lines 801-828)
+   ADDED:
+   - Date range validation (start < end)
+   - Maximum range check (1 year limit)
+   - User-friendly error messages
+   - Console logging for debugging
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ DATETIME-LOCAL INPUT FEATURES                                   │
+└──────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────┐
+│  CUSTOM RANGE:                                  │
+│  FROM: [2026-02-01 │ 08:00 ▼] 📅 🕐            │
+│         ├─ Date    └─ Time                      │
+│  TO:   [2026-02-03 │ 18:00 ▼] 📅 🕐            │
+│         ├─ Date    └─ Time                      │
+│  [APPLY] [CANCEL]                               │
+└─────────────────────────────────────────────────┘
+
+USER CAN NOW SELECT:
+• Specific dates (year, month, day)
+• Specific times (hour, minute)
+• Precise time windows (e.g., 8 AM to 6 PM)
+• Multi-day ranges with exact timestamps
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ VALIDATION RULES                                                 │
+└──────────────────────────────────────────────────────────────────┘
+
+❌ REJECTED: Start Date ≥ End Date
+   Alert: "Start date must be before end date"
+
+❌ REJECTED: Range > 1 Year
+   Alert: "Maximum date range is 1 year (365 days)"
+
+✅ ACCEPTED: Valid Range
+   Console: "[Custom Range] Applying: [ISO timestamps]"
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ USE CASES NOW SUPPORTED                                          │
+└──────────────────────────────────────────────────────────────────┘
+
+✅ Full Day Selection
+   FROM: 2026-02-01 00:00  TO: 2026-02-01 23:59
+   → Shows entire day of data
+
+✅ Multi-Day Range
+   FROM: 2026-02-01 00:00  TO: 2026-02-07 23:59
+   → Shows full week of data
+
+✅ Specific Time Window
+   FROM: 2026-02-01 08:00  TO: 2026-02-01 17:00
+   → Shows only business hours (8 AM - 5 PM)
+
+✅ Night Shift Analysis
+   FROM: 2026-02-01 22:00  TO: 2026-02-02 06:00
+   → Shows overnight shift data
+
+✅ Month-End Analysis
+   FROM: 2026-01-28 00:00  TO: 2026-02-03 23:59
+   → Shows week spanning two months
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ TESTING STEPS                                                    │
+└──────────────────────────────────────────────────────────────────┘
+
+1. cd apex-hmi && npm run dev
+2. Open HMI dashboard
+3. Select any tag for trending
+4. Switch trend to HISTORIAN mode
+5. Click CUSTOM button
+6. Select: FROM: 2026-02-01 00:00
+7. Select: TO: 2026-02-05 23:59
+8. Click APPLY
+9. ✅ Verify: Chart shows data for ALL 5 days
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ BROWSER SUPPORT                                                  │
+└──────────────────────────────────────────────────────────────────┘
+
+✅ Chrome/Edge 20+    [Full support]
+✅ Firefox 57+        [Full support]
+✅ Safari 14.1+       [Full support]
+✅ Opera 11+          [Full support]
+⚠️  IE 11             [Text fallback - manual entry required]
+
+
+┌──────────────────────────────────────────────────────────────────┐
+│ STATUS                                                           │
+└──────────────────────────────────────────────────────────────────┘
+
+✅ FIXED - Custom trends now show data for all selected days
+✅ Date + Time selection supported
+✅ Validation prevents invalid ranges
+✅ User-friendly error messages
+✅ Console logging for debugging
+
+READY FOR TESTING! 🚀

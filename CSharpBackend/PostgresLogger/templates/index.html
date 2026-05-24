@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            background: #e0e0e0;
+        }
+
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        select, input, button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .refresh-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .refresh-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+
+        .refresh-indicator.paused {
+            background: #ffc107;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .tag-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .tag-card {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .tag-card h4 {
+            font-size: 14px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .tag-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .tag-card .unit {
+            font-size: 12px;
+            color: #666;
+            margin-left: 5px;
+        }
+
+        .tag-card .timestamp {
+            font-size: 11px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-card {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-card .label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge.enabled {
+            background: #28a745;
+            color: white;
+        }
+
+        .badge.disabled {
+            background: #dc3545;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 id="app-title">{{ title }}</h1>
+            <p id="connection-status">Connecting to server...</p>
+            
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab(event,'live')">Live Trends</button>
+                <button class="tab" onclick="switchTab(event,'historical')">Historical Trends</button>
+                <button class="tab" onclick="switchTab(event,'config')">Tag Configuration</button>
+                <button class="tab" onclick="switchTab(event,'stats')">Statistics</button>
+            </div>
+        </div>
+
+        <!-- LIVE TRENDS TAB -->
+        <div id="tab-live" class="tab-content active">
+            <div class="card">
+                <div class="card-title">Live Data - Real-Time Monitoring</div>
+                
+                <div class="controls">
+                    <div class="refresh-control">
+                        <div class="refresh-indicator" id="refresh-indicator"></div>
+                        <span>Auto-Refresh:</span>
+                        <select id="refresh-interval" onchange="updateRefreshInterval()">
+                            <!-- Populated dynamically -->
+                        </select>
+                        <button onclick="toggleRefresh()" id="refresh-toggle">Pause</button>
+                        <span id="last-update">Never</span>
+                    </div>
+                    
+                    <button onclick="manualRefresh()">Refresh Now</button>
+                </div>
+                
+                <div id="live-tags-grid" class="tag-grid">
+                    <div class="loading">Loading live data...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HISTORICAL TRENDS TAB -->
+        <div id="tab-historical" class="tab-content">
+            <div class="card">
+                <div class="card-title">Historical Trend Viewer</div>
+                
+                <div class="controls">
+                    <div class="control-group">
+                        <label>Select Tags</label>
+                        <select id="historical-tags" multiple style="min-width: 250px; height: 100px;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Start Time</label>
+                        <input type="datetime-local" id="start-time">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>End Time</label>
+                        <input type="datetime-local" id="end-time">
+                    </div>
+                    
+                    <div class="control-group">
+                        <label>Max Points</label>
+                        <input type="number" id="max-points" value="1000" min="100" max="50000">
+                    </div>
+                    
+                    <button onclick="loadHistoricalTrends()" style="margin-top: 20px;">Load Trends</button>
+                </div>
+                
+                <div id="historical-chart" class="chart-container"></div>
+            </div>
+        </div>
+
+        <!-- TAG CONFIGURATION TAB -->
+        <div id="tab-config" class="tab-content">
+            <div class="card">
+                <div class="card-title">Tag Mapping Configuration</div>
+                
+                <div class="controls">
+                    <button onclick="discoverTags()">Auto-Discover Tags from Parquet</button>
+                    <button onclick="loadTagMappings()">Refresh List</button>
+                    <button onclick="showAddTagDialog()">Add New Tag</button>
+                </div>
+                
+                <div id="tag-mappings-table">
+                    <div class="loading">Loading tag mappings...</div>
+                </div>
+            </div>
+            
+
+        </div>
+
+        <!-- STATISTICS TAB -->
+        <div id="tab-stats" class="tab-content">
+            <div class="card">
+                <div class="card-title">Database Statistics</div>
+                
+                <div id="stats-grid" class="stats-grid">
+                    <div class="loading">Loading statistics...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global configuration
+        let appConfig = {};
+        let refreshIntervalId = null;
+        let isRefreshPaused = false;
+        let currentRefreshInterval = 5; // Default 5 seconds
+        let allColumns = []; // Store all parquet columns
+        let samplingFrequencies = []; // Store available frequencies
+
+        // Initialize app
+        async function initApp() {
+            try {
+                // Load all configuration from backend
+                const config = await fetch('/api/config/all').then(r => r.json());
+                appConfig = config;
+                
+                // Load refresh intervals
+                await loadRefreshIntervals();
+                
+                // Load sampling frequencies
+                const freqData = await fetch('/api/config/sampling-frequencies').then(r => r.json());
+                samplingFrequencies = freqData.available_options;
+                
+                // Set title
+                document.getElementById('app-title').textContent = appConfig.web_ui.title;
+                
+                // Initialize tabs
+                loadLiveData();
+                loadAvailableTags();
+                loadTagMappings();
+                loadStats();
+                
+                // Start auto-refresh
+                startAutoRefresh();
+                
+                document.getElementById('connection-status').textContent = '✓ Connected';
+                document.getElementById('connection-status').style.color = '#28a745';
+                
+            } catch (error) {
+                console.error('Failed to initialize app:', error);
+                document.getElementById('connection-status').textContent = '✗ Connection failed';
+                document.getElementById('connection-status').style.color = '#dc3545';
+            }
+        }
+
+        // Load refresh interval options from backend
+        async function loadRefreshIntervals() {
+            const data = await fetch('/api/config/refresh-intervals').then(r => r.json());
+            const select = document.getElementById('refresh-interval');
+            select.innerHTML = '';
+            
+            data.intervals.forEach(interval => {
+                const option = document.createElement('option');
+                option.value = interval.seconds;
+                option.textContent = interval.label;
+                if (interval.seconds === data.default) {
+                    option.selected = true;
+                    currentRefreshInterval = interval.seconds;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        // Update refresh interval
+        function updateRefreshInterval() {
+            const newInterval = parseInt(document.getElementById('refresh-interval').value);
+            currentRefreshInterval = newInterval;
+            
+            // Restart auto-refresh with new interval
+            if (!isRefreshPaused) {
+                stopAutoRefresh();
+                startAutoRefresh();
+            }
+        }
+
+        // Start auto-refresh
+        function startAutoRefresh() {
+            refreshIntervalId = setInterval(() => {
+                if (!isRefreshPaused) {
+                    loadLiveData();
+                }
+            }, currentRefreshInterval * 1000);
+            
+            document.getElementById('refresh-indicator').classList.remove('paused');
+        }
+
+        // Stop auto-refresh
+        function stopAutoRefresh() {
+            if (refreshIntervalId) {
+                clearInterval(refreshIntervalId);
+                refreshIntervalId = null;
+            }
+        }
+
+        // Toggle refresh
+        function toggleRefresh() {
+            isRefreshPaused = !isRefreshPaused;
+            const button = document.getElementById('refresh-toggle');
+            const indicator = document.getElementById('refresh-indicator');
+            
+            if (isRefreshPaused) {
+                button.textContent = 'Resume';
+                indicator.classList.add('paused');
+            } else {
+                button.textContent = 'Pause';
+                indicator.classList.remove('paused');
+                loadLiveData(); // Immediate refresh
+            }
+        }
+
+        // Manual refresh
+        function manualRefresh() {
+            loadLiveData();
+        }
+
+        // Load live data
+        async function loadLiveData() {
+            try {
+                const data = await fetch('/api/data/tags/latest').then(r => r.json());
+                const grid = document.getElementById('live-tags-grid');
+                
+                if (data.length === 0) {
+                    grid.innerHTML = '<div class="loading">No data available</div>';
+                    return;
+                }
+                
+                grid.innerHTML = '';
+                data.forEach(tag => {
+                    const card = document.createElement('div');
+                    card.className = 'tag-card';
+                    card.innerHTML = `
+                        <h4>${tag.tag_name}</h4>
+                        <div>
+                            <span class="value">${tag.value.toFixed(2)}</span>
+                            <span class="unit">${tag.unit || ''}</span>
+                        </div>
+                        <div class="timestamp">${new Date(tag.timestamp).toLocaleString()}</div>
+                        <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                            ${tag.plant} / ${tag.asset}
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+                
+                document.getElementById('last-update').textContent = 'Last: ' + new Date().toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Failed to load live data:', error);
+            }
+        }
+
+        // Load available tags for historical view
+        async function loadAvailableTags() {
+            try {
+                const tags = await fetch('/api/data/tags/list').then(r => r.json());
+                const select = document.getElementById('historical-tags');
+                select.innerHTML = '';
+                
+                tags.forEach(tag => {
+                    const option = document.createElement('option');
+                    option.value = tag.tag_name;
+                    option.textContent = `${tag.tag_name} (${tag.record_count} records)`;
+                    select.appendChild(option);
+                });
+                
+            } catch (error) {
+                console.error('Failed to load tags:', error);
+            }
+        }
+
+        // Load historical trends
+        async function loadHistoricalTrends() {
+            const selectedTags = Array.from(document.getElementById('historical-tags').selectedOptions).map(o => o.value);
+            const startTime = document.getElementById('start-time').value;
+            const endTime = document.getElementById('end-time').value;
+            const maxPoints = parseInt(document.getElementById('max-points').value);
+            
+            if (selectedTags.length === 0) {
+                alert('Please select at least one tag');
+                return;
+            }
+            
+            if (!startTime || !endTime) {
+                alert('Please select start and end time');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/data/trends', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tag_names: selectedTags,
+                        start_time: startTime,
+                        end_time: endTime,
+                        max_points: maxPoints
+                    })
+                });
+                
+                const data = await response.json();
+                plotHistoricalTrends(data, selectedTags);
+                
+            } catch (error) {
+                console.error('Failed to load historical trends:', error);
+                alert('Failed to load trends: ' + error.message);
+            }
+        }
+
+        // Plot historical trends using Plotly
+        function plotHistoricalTrends(data, tagNames) {
+            const traces = {};
+            
+            // Group data by tag
+            data.forEach(row => {
+                if (!traces[row.tag_name]) {
+                    traces[row.tag_name] = {
+                        x: [],
+                        y: [],
+                        name: row.tag_name,
+                        type: 'scatter',
+                        mode: 'lines'
+                    };
+                }
+                traces[row.tag_name].x.push(new Date(row.timestamp));
+                traces[row.tag_name].y.push(row.value);
+            });
+            
+            const plotData = Object.values(traces);
+            
+            const layout = {
+                title: 'Historical Trends',
+                xaxis: { title: 'Time' },
+                yaxis: { title: 'Value' },
+                hovermode: 'closest'
+            };
+            
+            Plotly.newPlot('historical-chart', plotData, layout);
+        }
+
+        // Load tag mappings - shows ALL parquet columns
+        async function loadTagMappings() {
+            const container = document.getElementById('tag-mappings-table');
+            try {
+                const discovery = await fetch('/api/tags/discover').then(r => r.json());
+                const mappings = await fetch('/api/tags/mappings').then(r => r.json());
+                const mappingMap = {};
+                mappings.forEach(m => mappingMap[m.parquet_column] = m);
+                const tagsInfo = discovery.tags || [];
+                if (tagsInfo.length === 0) {
+                    container.innerHTML = '<div class="loading">No tags found in parquet data.</div>';
+                    return;
+                }
+                let html = '<table><thead><tr>';
+                html += '<th>TagId</th><th>Tag Name</th><th>Plant</th><th>Asset</th><th>Subsystem</th><th>Unit</th><th>Frequency</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+                tagsInfo.forEach(info => {
+                    const tagId = info.tag_id;
+                    const mapping = mappingMap[tagId];
+                    if (mapping) {
+                        const bgColor = mapping.enabled ? '#e8f5e9' : '#ffebee';
+                        html += `<tr style="background:${bgColor};">`;
+                        html += `<td><strong>${tagId}</strong></td>`;
+                        html += `<td><input type="text" id="edit_name_${CSS.escape(tagId)}" value="${mapping.tag_name}" style="width:120px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="edit_plant_${CSS.escape(tagId)}" value="${mapping.plant}" style="width:100px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="edit_asset_${CSS.escape(tagId)}" value="${mapping.asset}" style="width:100px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="edit_subsystem_${CSS.escape(tagId)}" value="${mapping.subsystem || ''}" style="width:100px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="edit_unit_${CSS.escape(tagId)}" value="${mapping.unit || ''}" style="width:80px;padding:4px;" /></td>`;
+                        html += `<td><select id="edit_freq_${CSS.escape(tagId)}" style="width:90px;padding:4px;"><option value="0" ${(mapping.sampling_frequency_seconds||0)==0?'selected':''}>No sampling</option><option value="1" ${mapping.sampling_frequency_seconds==1?'selected':''}>1s</option><option value="5" ${mapping.sampling_frequency_seconds==5?'selected':''}>5s</option><option value="10" ${mapping.sampling_frequency_seconds==10?'selected':''}>10s</option><option value="60" ${mapping.sampling_frequency_seconds==60?'selected':''}>1min</option></select></td>`;
+                        html += `<td><span class="badge ${mapping.enabled ? 'enabled':'disabled'}">${mapping.enabled?'Enabled':'Disabled'}</span></td>`;
+                        html += `<td><button onclick='updateTag(\`${tagId}\`)'>Save</button> <button onclick='toggleTag(\`${tagId}\`, ${mapping.enabled})' style="background:${mapping.enabled?'#f44336':'#4caf50'};">${mapping.enabled?'Disable':'Enable'}</button></td>`;
+                    } else {
+                        html += '<tr style="background:#fff3e0;">';
+                        html += `<td><strong>${tagId}</strong></td>`;
+                        html += `<td><input type="text" id="name_${CSS.escape(tagId)}" placeholder="Tag Name" value="${tagId}" style="width:120px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="plant_${CSS.escape(tagId)}" placeholder="Plant" style="width:100px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="asset_${CSS.escape(tagId)}" placeholder="Asset" style="width:100px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="subsystem_${CSS.escape(tagId)}" placeholder="Subsystem" style="width:100px;padding:4px;" /></td>`;
+                        html += `<td><input type="text" id="unit_${CSS.escape(tagId)}" placeholder="Unit" style="width:80px;padding:4px;" /></td>`;
+                        html += `<td><select id="freq_${CSS.escape(tagId)}" style="width:90px;padding:4px;"><option value="0">No sampling</option><option value="1">1s</option><option value="5">5s</option><option value="10">10s</option><option value="60">1min</option></select></td>`;
+                        html += `<td style="color:#999;">Not mapped</td>`;
+                        html += `<td><button onclick='saveInlineMapping(\`${tagId}\`)'>Save</button></td>`;
+                    }
+                    html += '</tr>';
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Failed to load tag mappings:', error);
+                container.innerHTML = '<div class="error">Failed to load tag mappings: ' + error.message + '</div>';
+            }
+        }
+        
+        // Discover tags from parquet - shows all columns
+        async function discoverTags() {
+            try {
+                const result = await fetch('/api/tags/discover').then(r => r.json());
+                let message = `Parquet File: ${result.source_file}\nFormat: ${result.format}\n`;
+                message += `Total Tags: ${result.total_tags}\nMapped: ${result.mapped_count}\nUnmapped: ${result.unmapped_count}\n\n`;
+                if (result.tags) {
+                    const unmapped = result.tags.filter(t => !t.mapped);
+                    if (unmapped.length > 0) {
+                        message += 'Unmapped tags (first 25):\n';
+                        unmapped.slice(0,25).forEach((t,i)=>{message += `${i+1}. ${t.tag_id}\n`;});
+                        if (unmapped.length > 25) message += `... (${unmapped.length-25} more)\n`;
+                    }
+                }
+                alert(message);
+                loadTagMappings();
+            } catch (error) {
+                console.error('Failed to discover tags:', error);
+                alert('Failed to discover tags: ' + error.message);
+            }
+        }
+
+        // Load statistics
+        async function loadStats() {
+            try {
+                const stats = await fetch('/api/stats/database').then(r => r.json());
+                const grid = document.getElementById('stats-grid');
+                
+                grid.innerHTML = `
+                    <div class="stat-card">
+                        <div class="label">Total Records</div>
+                        <div class="value">${stats.total_records.toLocaleString()}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Total Tags</div>
+                        <div class="value">${stats.total_tags}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">First Record</div>
+                        <div class="value" style="font-size: 16px;">${stats.first_record ? new Date(stats.first_record).toLocaleDateString() : 'N/A'}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Last Record</div>
+                        <div class="value" style="font-size: 16px;">${stats.last_record ? new Date(stats.last_record).toLocaleDateString() : 'N/A'}</div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        // Tab switching
+        function switchTab(e, tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(btn => btn.classList.remove('active'));
+            const content = document.getElementById(`tab-${tabName}`);
+            if (content) content.classList.add('active');
+            if (e && e.currentTarget) e.currentTarget.classList.add('active');
+            if (tabName === 'stats') loadStats();
+        }
+
+        // Update existing tag mapping from inline fields
+        function updateTag(tagId) {
+            const tagName = document.getElementById(`edit_name_${CSS.escape(tagId)}`)?.value.trim();
+            const plant = document.getElementById(`edit_plant_${CSS.escape(tagId)}`)?.value.trim();
+            const asset = document.getElementById(`edit_asset_${CSS.escape(tagId)}`)?.value.trim();
+            const subsystem = document.getElementById(`edit_subsystem_${CSS.escape(tagId)}`)?.value.trim() || 'General';
+            const unit = document.getElementById(`edit_unit_${CSS.escape(tagId)}`)?.value.trim();
+            const freq = document.getElementById(`edit_freq_${CSS.escape(tagId)}`)?.value;
+            
+            if (!tagName || !plant || !asset) {
+                alert('Tag Name, Plant, and Asset are required!');
+                return;
+            }
+            
+            const updatedMapping = {
+                parquet_column: tagId,
+                tag_name: tagName,
+                plant: plant,
+                asset: asset,
+                subsystem: subsystem,
+                unit: unit,
+                enabled: true,
+                sampling_frequency_seconds: parseInt(freq) || 0
+            };
+            
+            fetch(`/api/tags/mapping/${tagId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedMapping)
+            })
+            .then(r => r.json())
+            .then(result => {
+                loadTagMappings();
+            })
+            .catch(error => {
+                alert('Failed to update tag: ' + error.message);
+            });
+        }
+        
+        // Show add tag dialog
+        function showAddTagDialog() {
+            const parquetColumn = prompt('Parquet Column Name (must match column in parquet file):');
+            if (!parquetColumn) return;
+            
+            const tagName = prompt('Tag Name:', parquetColumn);
+            if (!tagName) return;
+            
+            const plant = prompt('Plant:', 'Plant1');
+            if (!plant) return;
+            
+            const asset = prompt('Asset:', 'Asset1');
+            if (!asset) return;
+            
+            const subsystem = prompt('Subsystem:', 'General');
+            if (!subsystem) return;
+            
+            const unit = prompt('Unit (°C, Bar, RPM, etc.):', '');
+            if (unit === null) return;
+            
+            const frequency = prompt('Sampling Frequency (seconds, 0=all data):', '0');
+            if (frequency === null) return;
+            
+            const description = prompt('Description:', '') || '';
+            
+            const enabled = confirm('Enable this tag?');
+            
+            const newMapping = {
+                parquet_column: parquetColumn,
+                tag_name: tagName,
+                plant: plant,
+                asset: asset,
+                subsystem: subsystem,
+                unit: unit,
+                description: description,
+                data_type: 'Real',
+                enabled: enabled,
+                sampling_frequency_seconds: parseInt(frequency) || 0,
+                alarm_limits: {
+                    high_high: null,
+                    high: null,
+                    low: null,
+                    low_low: null
+                }
+            };
+            
+            fetch('/api/tags/mapping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newMapping)
+            })
+            .then(r => r.json())
+            .then(result => {
+                alert('Tag mapping created successfully!');
+                loadTagMappings();
+            })
+            .catch(error => {
+                alert('Failed to create tag: ' + error.message);
+            });
+        }
+
+        // Quick map long-format TagId
+        function quickMapTag(tagId) {
+            const plant = prompt('Plant:', 'Plant1'); if (!plant) return;
+            const asset = prompt('Asset:', 'Asset1'); if (!asset) return;
+            const subsystem = prompt('Subsystem:', 'General'); if (!subsystem) return;
+            const unit = prompt('Unit:', ''); if (unit === null) return;
+            const freq = prompt('Sampling Frequency seconds (0 = all):', '0'); if (freq === null) return;
+            const enabled = confirm('Enable this tag?');
+            const mapping = {
+                parquet_column: tagId,
+                tag_name: tagId,
+                plant, asset, subsystem,
+                unit,
+                description: '',
+                data_type: 'Real',
+                enabled,
+                sampling_frequency_seconds: parseInt(freq) || 0,
+                alarm_limits: { high_high: null, high: null, low: null, low_low: null }
+            };
+            fetch('/api/tags/mapping', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(mapping)})
+                .then(r=>r.json())
+                .then(()=>{ alert('Tag mapped'); loadTagMappings(); })
+                .catch(e=>alert('Failed: '+e.message));
+        }
+
+        
+        function saveInlineMapping(tagId) {
+            console.log('Saving mapping for:', tagId);
+            
+            const escapedId = CSS.escape(tagId);
+            const nameEl = document.getElementById(`name_${escapedId}`);
+            const plantEl = document.getElementById(`plant_${escapedId}`);
+            const assetEl = document.getElementById(`asset_${escapedId}`);
+            const subsystemEl = document.getElementById(`subsystem_${escapedId}`);
+            const unitEl = document.getElementById(`unit_${escapedId}`);
+            const freqEl = document.getElementById(`freq_${escapedId}`);
+            
+            if (!nameEl || !plantEl || !assetEl) {
+                console.error('Input elements not found for tagId:', tagId);
+                alert('Error: Input fields not found');
+                return;
+            }
+            
+            const name = nameEl.value.trim();
+            const plant = plantEl.value.trim();
+            const asset = assetEl.value.trim();
+            const subsystem = subsystemEl.value.trim() || 'General';
+            const unit = unitEl.value.trim();
+            const freq = parseInt(freqEl.value) || 0;
+            
+            console.log('Values:', {name, plant, asset, subsystem, unit, freq});
+            
+            if (!name || !plant || !asset) {
+                alert('Please fill Tag Name, Plant, and Asset (required fields)');
+                return;
+            }
+            
+            const newMapping = {
+                parquet_column: tagId,
+                tag_name: name,
+                plant: plant,
+                asset: asset,
+                subsystem: subsystem,
+                unit: unit,
+                sampling_frequency_seconds: freq,
+                enabled: true
+            };
+            
+            console.log('Sending mapping:', newMapping);
+            
+            fetch('/api/tags/mapping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newMapping)
+            })
+            .then(r => {
+                console.log('Response status:', r.status);
+                return r.json();
+            })
+            .then(data => {
+                console.log('Response data:', data);
+                alert('Tag mapped successfully! Importer will now process this tag.');
+                // Reload to show updated status
+                loadTagMappings();
+                // Trigger importer to re-check files
+                fetch('/api/tags/trigger-import', {method: 'POST'}).catch(e => console.log('Import trigger:', e));
+            })
+            .catch(err => {
+                console.error('Error:', err);
+                alert('Error saving mapping: ' + err);
+            });
+        }
+        
+        function toggleTag(tagId, currentEnabled) {
+            const action = currentEnabled ? 'disable' : 'enable';
+            fetch(`/api/tags/mapping/${tagId}`)
+                .then(r => r.json())
+                .then(mapping => {
+                    mapping.enabled = !currentEnabled;
+                    return fetch(`/api/tags/mapping/${tagId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(mapping)
+                    });
+                })
+                .then(r => r.json())
+                .then(() => {
+                    loadTagMappings();
+                })
+                .catch(e => alert('Failed to ' + action + ': ' + e.message));
+        }
+
+        // Initialize on page load
+        window.onload = initApp;
+        
+        // Cleanup on page unload
+        window.onbeforeunload = () => {
+            stopAutoRefresh();
+        };
+    </script>
+</body>
+</html>

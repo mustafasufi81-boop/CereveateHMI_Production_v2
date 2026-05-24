@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Historian - Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 10px; }
+        .toolbar { background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        button { padding: 10px 20px; background: #2196F3; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #1976D2; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .card { background: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card h3 { margin: 0 0 15px 0; color: #333; font-size: 16px; border-bottom: 2px solid #2196F3; padding-bottom: 8px; }
+        .metric-row { display: flex; justify-content: space-between; margin-bottom: 10px; padding: 8px; background: #f9f9f9; border-radius: 3px; }
+        .metric-label { font-size: 13px; color: #666; }
+        .metric-value { font-size: 18px; font-weight: bold; color: #2196F3; }
+        .health-indicator { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        .health-good { background: #4CAF50; }
+        .health-warn { background: #FF9800; }
+        .health-error { background: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Historian Dashboard</h1>
+        
+        <div class="toolbar">
+            <button onclick="refreshDashboard()">🔄 Refresh</button>
+            <button onclick="window.location.href='mapping.html'">🏷️ Tag Mapping</button>
+            <button onclick="window.location.href='events.html'">📋 Events Log</button>
+            <button onclick="window.location.href='plc-tag-config.html'" style="background:#388E3C;">⚙️ Tag Config</button>
+        </div>
+
+        <!-- Tag Status panel — same-origin C# /api/historian/tag-status -->
+        <div class="grid" style="margin-bottom:20px;">
+            <div class="card" style="grid-column: 1 / -1;">
+
+                <!-- Header -->
+                <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>📡 Tag Source &amp; DB Write Status</span>
+                    <span style="font-size:12px;font-weight:normal;color:#999;">Queries DB directly — refreshes every 30s</span>
+                </h3>
+
+                <!-- 4-column summary -->
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px;">
+
+                    <div style="background:#f0f7ff;border-left:4px solid #2196F3;padding:12px 16px;border-radius:4px;">
+                        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;">Total Mapped Tags</div>
+                        <div style="font-size:32px;font-weight:700;color:#2196F3;" id="ts-enabled">-</div>
+                        <div style="font-size:11px;color:#999;">Enabled in historian_meta.tag_master</div>
+                    </div>
+
+                    <div style="background:#f1f8f1;border-left:4px solid #4CAF50;padding:12px 16px;border-radius:4px;">
+                        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;">✅ Source Available</div>
+                        <div style="font-size:32px;font-weight:700;color:#4CAF50;" id="ts-live">-</div>
+                        <div style="font-size:11px;color:#999;">Writing to DB in last 10 min</div>
+                    </div>
+
+                    <div style="background:#fff8e1;border-left:4px solid #FF9800;padding:12px 16px;border-radius:4px;">
+                        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;">⚠️ Source Stale</div>
+                        <div style="font-size:32px;font-weight:700;color:#FF9800;" id="ts-stale">-</div>
+                        <div style="font-size:11px;color:#999;">Wrote data today but not recent</div>
+                    </div>
+
+                    <div style="background:#fff0f0;border-left:4px solid #f44336;padding:12px 16px;border-radius:4px;">
+                        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;">❌ Source Not Available</div>
+                        <div style="font-size:32px;font-weight:700;color:#f44336;" id="ts-missing">-</div>
+                        <div style="font-size:11px;color:#999;">Mapped but NO data received</div>
+                    </div>
+
+                </div>
+
+                <!-- Success rate bar -->
+                <div style="margin-bottom:14px;">
+                    <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:4px;">
+                        <span>Source Availability Rate</span>
+                        <span id="ts-rate">- %</span>
+                    </div>
+                    <div style="background:#eee;border-radius:4px;height:10px;overflow:hidden;">
+                        <div id="ts-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#4CAF50,#8BC34A);border-radius:4px;transition:width .5s;"></div>
+                    </div>
+                </div>
+
+                <!-- Toggle buttons -->
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                    <button id="btn-show-live" onclick="toggleTagList('live')"
+                        style="background:#4CAF50;font-size:12px;padding:6px 16px;display:none;border-radius:4px;">
+                        Show Available Tags
+                    </button>
+                    <button id="btn-show-missing" onclick="toggleTagList('missing')"
+                        style="background:#f44336;font-size:12px;padding:6px 16px;display:none;border-radius:4px;">
+                        Show Source-Not-Available Tags
+                    </button>
+                </div>
+
+                <!-- Available tags table (hidable) -->
+                <div id="list-live" style="display:none;margin-top:10px;margin-bottom:16px;">
+                    <div style="font-size:13px;font-weight:600;color:#4CAF50;margin-bottom:6px;">✅ Source Available — Currently Writing to DB</div>
+                    <div id="tags-live"></div>
+                </div>
+
+                <!-- Missing tags table (hidable) -->
+                <div id="list-missing" style="display:none;margin-top:10px;">
+                    <div style="font-size:13px;font-weight:600;color:#f44336;margin-bottom:6px;">❌ Source NOT Available — Mapped but NO data received in last 24h</div>
+                    <div id="tags-missing"></div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Cache -->
+            <div class="card">
+                <h3>Mapping Cache</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Total Tags</span>
+                    <span class="metric-value" id="cache-tag-count">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Mapping Version</span>
+                    <span class="metric-value" id="cache-version">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Status</span>
+                    <span class="metric-value" id="cache-status"><span class="health-indicator health-good"></span>Initialized</span>
+                </div>
+            </div>
+
+            <!-- Rate Controller -->
+            <div class="card">
+                <h3>Rate Controller</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Samples Received</span>
+                    <span class="metric-value" id="rate-received">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Samples Passed</span>
+                    <span class="metric-value" id="rate-passed">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Samples Filtered</span>
+                    <span class="metric-value" id="rate-filtered">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Filter Ratio</span>
+                    <span class="metric-value" id="rate-ratio">0%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Active Tags</span>
+                    <span class="metric-value" id="rate-active">0</span>
+                </div>
+            </div>
+
+            <!-- Batcher -->
+            <div class="card">
+                <h3>Batcher</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Samples Received</span>
+                    <span class="metric-value" id="batcher-received">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Batches Created</span>
+                    <span class="metric-value" id="batcher-created">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Avg Batch Size</span>
+                    <span class="metric-value" id="batcher-avg">0</span>
+                </div>
+            </div>
+
+            <!-- Writer -->
+            <div class="card">
+                <h3>Database Writer</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Total Rows Written</span>
+                    <span class="metric-value" id="writer-rows">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Batches Written</span>
+                    <span class="metric-value" id="writer-batches">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Errors</span>
+                    <span class="metric-value" id="writer-errors">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Success Rate</span>
+                    <span class="metric-value" id="writer-success">100%</span>
+                </div>
+            </div>
+
+            <!-- Spool -->
+            <div class="card">
+                <h3>Spool Manager</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Batches Spooled</span>
+                    <span class="metric-value" id="spool-spooled">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Batches Replayed</span>
+                    <span class="metric-value" id="spool-replayed">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Queue Depth</span>
+                    <span class="metric-value" id="spool-queue">0</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Spool Size</span>
+                    <span class="metric-value" id="spool-size">0 MB</span>
+                </div>
+            </div>
+
+            <!-- Health Summary -->
+            <div class="card">
+                <h3>System Health</h3>
+                <div class="metric-row">
+                    <span class="metric-label">Last Update</span>
+                    <span class="metric-value" id="last-update">-</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Database</span>
+                    <span class="metric-value" id="health-db"><span class="health-indicator health-good"></span>Healthy</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Cache</span>
+                    <span class="metric-value" id="health-cache"><span class="health-indicator health-good"></span>OK</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Throughput</span>
+                    <span class="metric-value" id="throughput">0 samples/sec</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/historian';
+        let previousData = null;
+        let previousTime = null;
+
+        async function refreshDashboard() {
+            try {
+                const res = await fetch(`${API_BASE}/dashboard`);
+                const data = await res.json();
+
+                // Cache
+                document.getElementById('cache-tag-count').textContent = data.cache.tag_count;
+                document.getElementById('cache-version').textContent = data.cache.mapping_version;
+
+                // Rate Controller
+                document.getElementById('rate-received').textContent = data.rate_control.samples_received.toLocaleString();
+                document.getElementById('rate-passed').textContent = data.rate_control.samples_passed.toLocaleString();
+                document.getElementById('rate-filtered').textContent = data.rate_control.samples_filtered.toLocaleString();
+                document.getElementById('rate-ratio').textContent = (data.rate_control.filter_ratio * 100).toFixed(1) + '%';
+                document.getElementById('rate-active').textContent = data.rate_control.active_tags;
+
+                // Batcher
+                document.getElementById('batcher-received').textContent = data.batcher.samples_received.toLocaleString();
+                document.getElementById('batcher-created').textContent = data.batcher.batches_created.toLocaleString();
+                const avgBatchSize = data.batcher.batches_created > 0 
+                    ? (data.batcher.samples_received / data.batcher.batches_created).toFixed(0)
+                    : 0;
+                document.getElementById('batcher-avg').textContent = avgBatchSize;
+
+                // Writer
+                document.getElementById('writer-rows').textContent = data.writer.rows_written.toLocaleString();
+                document.getElementById('writer-batches').textContent = data.writer.batches_written.toLocaleString();
+                document.getElementById('writer-errors').textContent = data.writer.errors;
+                const successRate = data.writer.batches_written > 0
+                    ? ((1 - data.writer.errors / (data.writer.batches_written + data.writer.errors)) * 100).toFixed(1)
+                    : 100;
+                document.getElementById('writer-success').textContent = successRate + '%';
+
+                // Spool
+                document.getElementById('spool-spooled').textContent = data.spool.batches_spooled;
+                document.getElementById('spool-replayed').textContent = data.spool.batches_replayed;
+                document.getElementById('spool-queue').textContent = data.spool.queue_depth;
+                document.getElementById('spool-size').textContent = data.spool.size_mb + ' MB';
+
+                // Throughput calculation
+                if (previousData && previousTime) {
+                    const timeDiffSec = (new Date() - previousTime) / 1000;
+                    const samplesDiff = data.rate_control.samples_received - previousData.rate_control.samples_received;
+                    const throughput = timeDiffSec > 0 ? (samplesDiff / timeDiffSec).toFixed(1) : 0;
+                    document.getElementById('throughput').textContent = throughput + ' samples/sec';
+                }
+
+                previousData = data;
+                previousTime = new Date();
+
+                // Last update
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+
+                // Health indicators
+                // DB health: use actual readiness check, not error/batch ratio
+                // (spool replay errors inflate the ratio and cause false "Error" state)
+                updateDbHealth();
+                updateHealthIndicator('health-cache', data.cache.initialized ? 'good' : 'error');
+
+            } catch (err) {
+                console.error('Failed to refresh dashboard:', err);
+                document.getElementById('health-db').innerHTML = '<span class="health-indicator health-error"></span>Error';
+            }
+        }
+
+        async function updateDbHealth() {
+            try {
+                const res = await fetch(`${API_BASE}/health/ready`);
+                const d = await res.json();
+                const dbOk = d.checks && d.checks.database === 'healthy';
+                const spoolHigh = d.checks && d.checks.spool_queue > 5000;
+                if (dbOk && !spoolHigh) updateHealthIndicator('health-db', 'good');
+                else if (dbOk && spoolHigh) updateHealthIndicator('health-db', 'warn');
+                else updateHealthIndicator('health-db', 'error');
+            } catch { updateHealthIndicator('health-db', 'warn'); }
+        }
+
+        function updateHealthIndicator(elementId, status) {
+            const el = document.getElementById(elementId);
+            el.className = 'metric-value';
+            const healthClass = status === 'good' ? 'health-good' : (status === 'warn' ? 'health-warn' : 'health-error');
+            const text = status === 'good' ? 'Healthy' : (status === 'warn' ? 'Warning' : 'Error');
+            el.innerHTML = `<span class="health-indicator ${healthClass}"></span>${text}`;
+        }
+
+        async function refreshTagStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/tag-status`);
+                const d = await res.json();
+                if (d.error) { console.warn('tag-status error:', d.error); return; }
+
+                const enabled = d.enabled_count ?? 0;
+                const live    = d.live_count    ?? 0;
+                const stale   = d.stale_count   ?? 0;
+                const missing = d.missing_count ?? 0;
+
+                document.getElementById('ts-enabled').textContent = enabled;
+                document.getElementById('ts-live').textContent    = live;
+                document.getElementById('ts-stale').textContent   = stale;
+                document.getElementById('ts-missing').textContent = missing;
+
+                // Availability rate bar
+                const rate = enabled > 0 ? ((live + stale) / enabled * 100) : 0;
+                document.getElementById('ts-rate').textContent = rate.toFixed(1) + '%';
+                document.getElementById('ts-bar').style.width  = rate.toFixed(1) + '%';
+                document.getElementById('ts-bar').style.background =
+                    rate >= 80 ? 'linear-gradient(90deg,#4CAF50,#8BC34A)' :
+                    rate >= 50 ? 'linear-gradient(90deg,#FF9800,#FFC107)' :
+                                 'linear-gradient(90deg,#f44336,#FF5722)';
+
+                // Toggle buttons
+                document.getElementById('btn-show-live').style.display    = live    > 0 ? 'inline-block' : 'none';
+                document.getElementById('btn-show-missing').style.display = missing > 0 ? 'inline-block' : 'none';
+
+                // Update button text if list is already open
+                const btnLive    = document.getElementById('btn-show-live');
+                const btnMissing = document.getElementById('btn-show-missing');
+                if (!btnLive.textContent.startsWith('Hide'))    btnLive.textContent    = `Show Available Tags (${live})`;
+                if (!btnMissing.textContent.startsWith('Hide')) btnMissing.textContent = `Show Source-Not-Available Tags (${missing})`;
+
+                // Render tables
+                renderTagTable('tags-live',    d.live_tags    ?? [], '#4CAF50', '#f1f8f1');
+                renderTagTable('tags-missing', d.missing_tags ?? [], '#f44336', '#fff0f0');
+
+            } catch (err) {
+                console.warn('tag-status fetch failed:', err.message);
+            }
+        }
+
+        function renderTagTable(containerId, tags, color, bg) {
+            const el = document.getElementById(containerId);
+            if (!tags.length) { el.innerHTML = '<em style="color:#999;">None</em>'; return; }
+            let html = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead><tr style="background:${bg};">
+                    <th style="text-align:left;padding:6px 10px;color:${color};border-bottom:2px solid ${color};">#</th>
+                    <th style="text-align:left;padding:6px 10px;color:${color};border-bottom:2px solid ${color};">Tag ID</th>
+                </tr></thead><tbody>`;
+            tags.forEach((t, i) => {
+                const rowBg = i % 2 === 0 ? '#fff' : bg;
+                html += `<tr style="background:${rowBg};">
+                    <td style="padding:5px 10px;color:#999;">${i + 1}</td>
+                    <td style="padding:5px 10px;color:#333;font-family:monospace;">${t}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            el.innerHTML = html;
+        }
+
+        function toggleTagList(type) {
+            const listEl = document.getElementById(`list-${type}`);
+            const btnEl  = document.getElementById(`btn-show-${type}`);
+            const count  = document.getElementById(`ts-${type}`).textContent;
+            const isHidden = listEl.style.display === 'none';
+            listEl.style.display = isHidden ? 'block' : 'none';
+            if (type === 'live')    btnEl.textContent = isHidden ? 'Hide Tags Writing to DB'    : `Show Tags Writing to DB (${count})`;
+            if (type === 'missing') btnEl.textContent = isHidden ? 'Hide Missing Tags'           : `Show Missing Tags (${count})`;
+        }
+
+        // Auto-refresh
+        refreshDashboard();
+        refreshTagStatus();
+        setInterval(refreshDashboard, 5000);
+        setInterval(refreshTagStatus, 30000);
+    </script>
+</body>
+</html>

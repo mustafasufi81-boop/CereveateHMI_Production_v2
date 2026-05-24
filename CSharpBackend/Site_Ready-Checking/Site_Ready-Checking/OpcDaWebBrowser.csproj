@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x86</PlatformTarget>
+    <OutputType>WinExe</OutputType>
+    <Company>Cereveate_Praxis</Company>
+    <Product>Cereveate_Praxis OPC Server</Product>
+    <Version>1.0.0</Version>
+    <Copyright>Copyright © Cereveate_Praxis 2025</Copyright>
+    <Description>Professional OPC DA Server with Real-time Monitoring and Data Logging</Description>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="OpcRcw.Da">
+      <HintPath>C:\Windows\Microsoft.NET\assembly\GAC_MSIL\OpcRcw.Da\v4.0_3.0.3.0__78aea80f6827b5ab\OpcRcw.Da.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="OpcRcw.Comn">
+      <HintPath>C:\Windows\Microsoft.NET\assembly\GAC_MSIL\OpcRcw.Comn\v4.0_1.10.2.0__78aea80f6827b5ab\OpcRcw.Comn.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Parquet.Net" Version="5.3.0" />
+    <PackageReference Include="Serilog.Extensions.Logging.File" Version="3.0.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="LogViewerTest\**" />
+    <Content Remove="LogViewerTest\**" />
+    <EmbeddedResource Remove="LogViewerTest\**" />
+    <None Remove="LogViewerTest\**" />
+  </ItemGroup>
+
+</Project>
