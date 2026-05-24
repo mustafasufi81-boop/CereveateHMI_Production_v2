@@ -814,7 +814,10 @@ def _get_conn():
 
     Usage:
         with _get_conn() as conn:
-            df = pd.read_sql(sql, conn, params=params)
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                cols = [desc[0] for desc in cur.description]
+                df = pd.DataFrame(cur.fetchall(), columns=cols)
     """
     global _bi_pool
     conn = None
@@ -967,7 +970,12 @@ def _get_timeseries_df(
 
     try:
         with _get_conn() as conn:
-            df_raw = pd.read_sql(sql, conn, params=params, parse_dates=["Timestamp"])
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                cols = [desc[0] for desc in cur.description]
+                df_raw = pd.DataFrame(cur.fetchall(), columns=cols)
+                if "Timestamp" in df_raw.columns:
+                    df_raw["Timestamp"] = pd.to_datetime(df_raw["Timestamp"], utc=True)
     except Exception as e:
         logger.error(f"[BI] Query failed: {e}")
         return pd.DataFrame()

@@ -181,7 +181,7 @@ class SessionService:
                                u.username,
                                u.status AS user_status,
                                -- absolute_timeout from role to derive expires_at if no column
-                               NOW() + (COALESCE(r.absolute_timeout_hours, 8) * INTERVAL '1 hour')
+                               NOW() + (COALESCE(r.absolute_timeout_minutes, 480) * INTERVAL '1 minute')
                                    AS computed_expires_at
                         FROM historian_meta.user_sessions s
                         JOIN historian_meta.users u ON u.id = s.user_id

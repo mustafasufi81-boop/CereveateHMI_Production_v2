@@ -45,8 +45,12 @@ def proxy_opc_values(current_user):
             
             # Apply RBAC filtering
             if tag_filter is not None and 'tags' in data:
+                tags = data['tags']
+                # OPC backend may return tags as a list OR a dict — normalise to dict
+                if isinstance(tags, list):
+                    tags = {t.get('tagId') or t.get('tag') or t.get('id', ''): t for t in tags}
                 filtered_tags = {}
-                for tag_id, tag_data in data['tags'].items():
+                for tag_id, tag_data in tags.items():
                     # Get plant/area info for this tag
                     plant = tag_data.get('plant')
                     area = tag_data.get('area')

@@ -58,6 +58,7 @@ class MQTTSubscriberService:
         self.thread_pool = None
         self.message_processor = None
         self.health_check = None
+        self.trip_detector = None
         self.metrics = MetricsCollector()
         
         self.running = False
