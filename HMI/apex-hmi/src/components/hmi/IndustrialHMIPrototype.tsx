@@ -363,6 +363,12 @@ export const IndustrialHMIPrototype = () => {
   const canViewAnalytics = usePermission('analytics', 'canView');
   const canViewReports   = usePermission('reports', 'canView');
   const canViewAlarms    = usePermission('alarms',    'canView');
+  const canViewHmi       = usePermission('hmi',       'canView');
+
+  // Per-service failure tracking for the header status bar
+  const [opcFailed,  setOpcFailed]  = useState(false);
+  const [plcFailed,  setPlcFailed]  = useState(false);
+  const [usingRestFallback, setUsingRestFallback] = useState(false);
 
   // Auto-snap back to TRENDS if user loses analytics access while on a restricted tab
   useEffect(() => {
@@ -792,83 +798,88 @@ export const IndustrialHMIPrototype = () => {
     };
   }, []);
 
-  // REST fallback: poll /api/opc/values every 2s (always active â€” also covers Socket.IO gaps)
-  // Flask /api/opc/values returns: { tags: [ { tagId, value, quality, timestamp } ] }
+  // REST fallback: poll /api/opc/values + /api/plc/values every 1s
+  // Restarts automatically when canViewHmi changes (permission restored -> data resumes)
   useEffect(() => {
-    const pollRestValues = async () => {
-      try {
-        const res = await fetch('/api/opc/values', {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('auth_token') || ''}` }
-        });
-        if (!res.ok) return;
-        const data = await res.json();
+    if (!canViewHmi) return; // HMI access revoked - stop polling
 
-        // Support both array and dict shapes
-        const raw = data?.tags ?? data;
-        if (!raw) return;
-
-        const entries: any[] = Array.isArray(raw)
-          ? raw
-          : Object.entries(raw).map(([id, v]: any) => ({ tagId: id, ...v }));
-
-        const updates: Record<string, any> = {};
-        entries.forEach((tag: any) => {
-          // Flask proxy returns camelCase 'tagId'; also accept snake_case 'tag_id' / 'id'
-          const tagId: string | undefined = tag.tagId || tag.tag_id || tag.id;
-          // Value may come as numeric, boolean, text or generic 'value' field
-          const value = tag.value_num ?? tag.value_text ?? tag.value_bool ?? tag.value;
-          if (tagId && value !== undefined && value !== null) {
-            updates[tagId] = {
-              value,
-              quality:   tag.quality   || 'Good',
-              timestamp: tag.timestamp || tag.time || new Date().toISOString(),
-              unit:      tag.eng_unit  || tag.unit || '',
-              source:    tag.source    || 'rest'
-            };
-          }
-        });
-
-        if (Object.keys(updates).length > 0) {
-          setLiveTagValues(prev => ({ ...prev, ...updates }));
-
-          // â”€â”€ Feed trend chart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-          // trendDataRef is only written by the MQTT path by default.
-          // When data arrives via REST we must do the same push so the
-          // chart has points even when MQTT / Socket.IO is not connected.
-          const currentSelected = selectedTagsRef.current;
-          Object.entries(updates).forEach(([tagId, tagData]) => {
-            const selTag = currentSelected.find(t => String(t.id) === String(tagId));
-            if (!selTag) return; // only chart selected tags
-
-            const tagUnit = selTag.unit || tagData.unit || '';
-            const isPaused = trendsPausedRef.current[tagUnit] || false;
-            // Determine the chart key (windowId or cleaned unit)
-            const chartKey = selTag.windowId || tagUnit.replace(/^\d+\s*/, '').trim();
-            const isHistorianMode = chartStatesRef.current[chartKey]?.dataMode === 'historian';
-            if (isPaused || isHistorianMode) return;
-
-            if (!trendDataRef.current[tagId]) {
-              trendDataRef.current[tagId] = [];
-            }
-            const trendArr = trendDataRef.current[tagId];
-            const ts = tagData.timestamp || new Date().toISOString();
-            const timeString = formatMQTTTimestamp(ts, showMillisecondsRef.current);
-            const numVal = typeof tagData.value === 'number'
-              ? tagData.value
-              : parseFloat(String(tagData.value));
-            if (!isNaN(numVal)) {
-              trendArr.push({ time: timeString, value: numVal });
-              if (trendArr.length > 300) trendArr.shift(); // keep last 5 min at 1 s
-            }
-          });
+    // Shared helper: normalise any tag array/dict and push into liveTagValues + trend
+    const applyTagUpdates = (raw: any, source: string) => {
+      if (!raw) return;
+      const entries: any[] = Array.isArray(raw)
+        ? raw
+        : Object.entries(raw).map(([id, v]: any) => ({ tagId: id, ...v }));
+      const updates: Record<string, any> = {};
+      entries.forEach((tag: any) => {
+        const tagId: string | undefined = tag.tagId || tag.tag_id || tag.tagName || tag.id;
+        const value = tag.value_num ?? tag.value_text ?? tag.value_bool ?? tag.value;
+        if (tagId && value !== undefined && value !== null) {
+          updates[tagId] = {
+            value,
+            quality:   tag.quality   || 'Good',
+            timestamp: tag.timestamp || tag.time || tag.cachedAt || new Date().toISOString(),
+            unit:      tag.eng_unit  || tag.unit || '',
+            source,
+          };
         }
-      } catch (_) { /* services may not be up yet */ }
+      });
+      if (Object.keys(updates).length === 0) return;
+      setLiveTagValues(prev => ({ ...prev, ...updates }));
+      const currentSelected = selectedTagsRef.current;
+      Object.entries(updates).forEach(([tagId, tagData]) => {
+        const selTag = currentSelected.find(t => String(t.id) === String(tagId));
+        if (!selTag) return;
+        const tagUnit = selTag.unit || tagData.unit || '';
+        const isPaused = trendsPausedRef.current[tagUnit] || false;
+        const chartKey = selTag.windowId || tagUnit.replace(/^\d+\s*/, '').trim();
+        const isHistorianMode = chartStatesRef.current[chartKey]?.dataMode === 'historian';
+        if (isPaused || isHistorianMode) return;
+        if (!trendDataRef.current[tagId]) trendDataRef.current[tagId] = [];
+        const trendArr = trendDataRef.current[tagId];
+        const ts = tagData.timestamp || new Date().toISOString();
+        const timeString = formatMQTTTimestamp(ts, showMillisecondsRef.current);
+        const numVal = typeof tagData.value === 'number' ? tagData.value : parseFloat(String(tagData.value));
+        if (!isNaN(numVal)) {
+          trendArr.push({ time: timeString, value: numVal });
+          if (trendArr.length > 300) trendArr.shift();
+        }
+      });
     };
 
-    const interval = setInterval(pollRestValues, 1000); // poll every 1 s
-    pollRestValues(); // run immediately on mount
+    const pollRestValues = async () => {
+      const token = localStorage.getItem('auth_token') || '';
+      const headers = { 'Authorization': \Bearer \ };
+
+      // -- OPC REST poll --
+      try {
+        const res = await fetch('/api/opc/values', { headers });
+        if (!res.ok) throw new Error(\OPC HTTP \);
+        const data = await res.json();
+        setOpcFailed(false);
+        applyTagUpdates(data?.tags ?? data, 'rest-opc');
+        setUsingRestFallback(!mqttWebSocketService.isConnected());
+      } catch (e) {
+        setOpcFailed(true);
+        console.warn('[REST] OPC poll failed:', e);
+      }
+
+      // -- PLC REST poll --
+      try {
+        const res = await fetch('/api/plc/values', { headers });
+        if (!res.ok) throw new Error(\PLC HTTP \);
+        const data = await res.json();
+        setPlcFailed(false);
+        applyTagUpdates(data?.tags ?? data?.values ?? data, 'rest-plc');
+      } catch (e) {
+        setPlcFailed(true);
+        console.warn('[REST] PLC poll failed:', e);
+      }
+    };
+
+    const interval = setInterval(pollRestValues, 1000);
+    pollRestValues(); // run immediately on mount / permission restore
     return () => clearInterval(interval);
-  }, []);
+  }, [canViewHmi]); // restart when HMI access is granted/revoked  }, []);
 
   // Historian Data Fetching - When mode switches to 'historian'
   useEffect(() => {
@@ -1396,7 +1407,16 @@ export const IndustrialHMIPrototype = () => {
                 : connHealth.dataIsStale ? 'DATA STALE' : 'LIVE'}
             </span>
             {connHealth.flaskReachable === false && (
-              <span style={{ color: ISA_COLORS.statusOffline, marginLeft: 4 }}>| API DOWN</span>
+              <span style={{ color: ISA_COLORS.statusOffline, marginLeft: 4 }}>| FLASK API DOWN</span>
+            )}
+            {opcFailed && connHealth.flaskReachable !== false && (
+              <span style={{ color: '#ff4444', marginLeft: 4, fontWeight: 700 }}>| OPC FAIL</span>
+            )}
+            {plcFailed && (
+              <span style={{ color: '#ff8800', marginLeft: 4, fontWeight: 700 }}>| PLC FAIL</span>
+            )}
+            {usingRestFallback && !opcFailed && (
+              <span style={{ color: '#ffaa00', marginLeft: 4, fontSize: '10px' }}>| REST FALLBACK</span>
             )}
           </div>
           <div style={{ display: 'flex', gap: '16px', marginLeft: '24px' }}>

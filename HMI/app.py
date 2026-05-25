@@ -656,25 +656,36 @@ def on_mqtt_message(topic, filtered_tags, raw_data):
         mqtt_ts      = raw_data.get('timestamp')
 
         for sid, session in list(_sid_sessions.items()):
-            allowed = session.get('allowed')   # None = admin, set = restricted
+            user_id   = session.get('user_id')
+            is_admin  = session.get('is_admin', False)
+
+            # Re-fetch permissions live so admin changes take effect immediately
+            # (avoids stale permissions cached at connect time)
+            allowed = _get_user_allowed_areas(user_id, is_admin) if user_id else set()
+            # Keep session up-to-date so the snapshot on reconnect is also fresh
+            session['allowed'] = allowed
+
             if allowed is None:
                 # Admin: full payload
                 socketio.emit('mqtt_tag_update', {
-                    'topic': topic, 'tags': filtered_tags,
-                    'gateway_id': gateway_id, 'timestamp': mqtt_ts
-                }, room=sid, namespace='/')
+                        'topic': topic, 'tags': filtered_tags,
+                        'gateway_id': gateway_id, 'timestamp': mqtt_ts
+                    }, room=sid, namespace='/')
             else:
                 user_tags = [
                     t for t in filtered_tags
-                    if tag_meta_mqtt.get(t.get('tag_id'), (None, None)) in allowed
+                    if (
+                        # Tags with no plant/area (e.g. PLC tags) are visible to all
+                        # authenticated users — they have no area restriction to enforce
+                        tag_meta_mqtt.get(t.get('tag_id'), (None, None)) == (None, None)
+                        or tag_meta_mqtt.get(t.get('tag_id'), (None, None)) in allowed
+                    )
                 ]
                 if user_tags:
                     socketio.emit('mqtt_tag_update', {
-                        'topic': topic, 'tags': user_tags,
-                        'gateway_id': gateway_id, 'timestamp': mqtt_ts
-                    }, room=sid, namespace='/')
-        
-        # Log periodically to reduce overhead
+                            'topic': topic, 'tags': user_tags,
+                            'gateway_id': gateway_id, 'timestamp': mqtt_ts
+                        }, room=sid, namespace='/')        # Log periodically to reduce overhead
         current_time = time.time()
         if not hasattr(on_mqtt_message, 'last_log_time'):
             on_mqtt_message.last_log_time = 0
@@ -725,20 +736,24 @@ def on_signalr_tag_update(tags_data):
                     for t in container.tag_cache.get_all_tags()}
 
         for sid, session in list(_sid_sessions.items()):
-            allowed = session.get('allowed')   # None = admin (all), set = restricted
+            user_id  = session.get('user_id')
+            is_admin = session.get('is_admin', False)
+            allowed  = _get_user_allowed_areas(user_id, is_admin) if user_id else set()
+            session['allowed'] = allowed   # keep session fresh
+
             if allowed is None:
                 # Admin: send full batch unchanged
                 socketio.emit('tag_update', tags_data, room=sid, namespace='/')
             else:
                 filtered_batch = [
                     t for t in tags_data
-                    if isinstance(t, dict) and
-                    tag_meta.get(t.get('itemID') or t.get('itemId'), (None, None)) in allowed
+                    if isinstance(t, dict) and (
+                        tag_meta.get(t.get('itemID') or t.get('itemId'), (None, None)) == (None, None)
+                        or tag_meta.get(t.get('itemID') or t.get('itemId'), (None, None)) in allowed
+                    )
                 ]
                 if filtered_batch:
-                    socketio.emit('tag_update', filtered_batch, room=sid, namespace='/')
-
-        # Log batch statistics every 5 seconds to reduce overhead
+                    socketio.emit('tag_update', filtered_batch, room=sid, namespace='/')        # Log batch statistics every 5 seconds to reduce overhead
         current_time = time.time()
         if not hasattr(on_signalr_tag_update, 'last_log_time'):
             on_signalr_tag_update.last_log_time = 0
