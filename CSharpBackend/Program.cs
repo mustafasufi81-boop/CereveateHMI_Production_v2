@@ -109,6 +109,8 @@ builder.Services.AddHostedService<ResourceMonitor>();
 // Tag Values Pool Service (shared cache for Parquet + PostgreSQL)
 builder.Services.AddSingleton<TagValuesPoolService>();
 
+// Seed ServerProgId + MonitoredTags from tag_master on first boot (runs before OpcAutoConnectService)
+builder.Services.AddHostedService<StartupTagSeedService>();
 builder.Services.AddHostedService<OpcAutoConnectService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<LogBackupService>()); // Use same instance
 builder.Services.AddHostedService(provider => provider.GetRequiredService<DataLoggingService>());
