@@ -675,7 +675,10 @@ export const IndustrialHMIPrototype = () => {
     // Subscribe to real-time connection state changes (instant UI update)
     const unsubConn = mqttWebSocketService.onConnectionChange((connected) => {
       setWsConnected(connected);
-      logInfo(connected ? 'âœ… Socket.IO connected' : 'âš ï¸ Socket.IO disconnected');
+      if (connected) {
+        setUsingRestFallback(false);
+      }
+      logInfo(connected ? 'âœ… Socket.IO connected' : 'âš ï¸ Socket.IO disconnected');
     });
 
     mqttWebSocketService.connect();
@@ -801,7 +804,12 @@ export const IndustrialHMIPrototype = () => {
   // REST fallback: poll /api/opc/values + /api/plc/values every 1s
   // Restarts automatically when canViewHmi changes (permission restored -> data resumes)
   useEffect(() => {
-    if (!canViewHmi) return; // HMI access revoked - stop polling
+    if (!canViewHmi) {
+      setUsingRestFallback(false);
+      setOpcFailed(false);
+      setPlcFailed(false);
+      return;
+    }
 
     // Shared helper: normalise any tag array/dict and push into liveTagValues + trend
     const applyTagUpdates = (raw: any, source: string) => {
@@ -848,12 +856,12 @@ export const IndustrialHMIPrototype = () => {
 
     const pollRestValues = async () => {
       const token = localStorage.getItem('auth_token') || '';
-      const headers = { 'Authorization': \Bearer \ };
+      const headers = { Authorization: `Bearer ${token}` };
 
       // -- OPC REST poll --
       try {
         const res = await fetch('/api/opc/values', { headers });
-        if (!res.ok) throw new Error(\OPC HTTP \);
+        if (!res.ok) throw new Error(`OPC HTTP ${res.status}`);
         const data = await res.json();
         setOpcFailed(false);
         applyTagUpdates(data?.tags ?? data, 'rest-opc');
@@ -866,7 +874,7 @@ export const IndustrialHMIPrototype = () => {
       // -- PLC REST poll --
       try {
         const res = await fetch('/api/plc/values', { headers });
-        if (!res.ok) throw new Error(\PLC HTTP \);
+        if (!res.ok) throw new Error(`PLC HTTP ${res.status}`);
         const data = await res.json();
         setPlcFailed(false);
         applyTagUpdates(data?.tags ?? data?.values ?? data, 'rest-plc');
@@ -879,7 +887,7 @@ export const IndustrialHMIPrototype = () => {
     const interval = setInterval(pollRestValues, 1000);
     pollRestValues(); // run immediately on mount / permission restore
     return () => clearInterval(interval);
-  }, [canViewHmi]); // restart when HMI access is granted/revoked  }, []);
+  }, [canViewHmi]); // restart when HMI access is granted/revoked
 
   // Historian Data Fetching - When mode switches to 'historian'
   useEffect(() => {
@@ -1402,7 +1410,7 @@ export const IndustrialHMIPrototype = () => {
                 ? `0 0 5px ${ISA_COLORS.statusOnline}` : 'none',
             }} />
             <span style={{ color: !connHealth.socketConnected ? ISA_COLORS.statusOffline : connHealth.dataIsStale ? '#ffaa00' : ISA_COLORS.statusOnline }}>
-              OPC: {!connHealth.socketConnected
+              MQTT: {!connHealth.socketConnected
                 ? (connHealth.reconnectAttempts > 0 ? `RECONNECTING #${connHealth.reconnectAttempts}` : 'OFFLINE')
                 : connHealth.dataIsStale ? 'DATA STALE' : 'LIVE'}
             </span>
@@ -1410,13 +1418,13 @@ export const IndustrialHMIPrototype = () => {
               <span style={{ color: ISA_COLORS.statusOffline, marginLeft: 4 }}>| FLASK API DOWN</span>
             )}
             {opcFailed && connHealth.flaskReachable !== false && (
-              <span style={{ color: '#ff4444', marginLeft: 4, fontWeight: 700 }}>| OPC FAIL</span>
+              <span style={{ color: '#ff4444', marginLeft: 4, fontWeight: 700 }}>| OPC REST FAIL</span>
             )}
             {plcFailed && (
-              <span style={{ color: '#ff8800', marginLeft: 4, fontWeight: 700 }}>| PLC FAIL</span>
+              <span style={{ color: '#ff8800', marginLeft: 4, fontWeight: 700 }}>| PLC REST FAIL</span>
             )}
             {usingRestFallback && !opcFailed && (
-              <span style={{ color: '#ffaa00', marginLeft: 4, fontSize: '10px' }}>| REST FALLBACK</span>
+              <span style={{ color: '#ffaa00', marginLeft: 4, fontSize: '10px' }}>| REST FALLBACK ACTIVE</span>
             )}
           </div>
           <div style={{ display: 'flex', gap: '16px', marginLeft: '24px' }}>
@@ -1561,7 +1569,7 @@ export const IndustrialHMIPrototype = () => {
                 whiteSpace: 'nowrap',
               }}
             >
-              <span style={{ fontSize: '12px' }}>ðŸ“‰</span> TRENDS
+              TRENDS
             </button>
 
             {/* Divider */}
@@ -1585,7 +1593,7 @@ export const IndustrialHMIPrototype = () => {
                   position: 'relative',
                 }}
               >
-                <span style={{ fontSize: '12px' }}>âš </span> ANALYTICS
+                ANALYTICS
                 {centerTab === 'analytics' && (
                   <span style={{
                     marginLeft: '4px', fontSize: '8px', fontWeight: 700,
@@ -1615,7 +1623,7 @@ export const IndustrialHMIPrototype = () => {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <span style={{ fontSize: '12px' }}>ðŸ”®</span> PREDICTIVE
+                  PREDICTIVE
                   {centerTab === 'predictive' && (
                     <span style={{
                       marginLeft: '4px', fontSize: '8px', fontWeight: 700,
@@ -1648,7 +1656,7 @@ export const IndustrialHMIPrototype = () => {
                   onMouseEnter={e => (e.currentTarget.style.color = '#34D399')}
                   onMouseLeave={e => (e.currentTarget.style.color = '#4B5563')}
                 >
-                  <span style={{ fontSize: '12px' }}>ðŸ“‹</span> REPORTS â†—
+                  REPORTS ↗
                 </button>
               </>
             )}
