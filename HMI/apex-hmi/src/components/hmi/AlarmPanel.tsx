@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+﻿import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { AlertTriangle, Bell, Clock, XCircle, AlertCircle, CheckCircle, FileText, History, HelpCircle, Search, X, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/auth-context";
@@ -14,7 +14,7 @@ interface Alarm {
   event_type: string;
   alarm_state: "ACTIVE_UNACK" | "ACTIVE_ACK" | "RTN_UNACK" | "CLEARED" | "SUPPRESSED" | null;
   alarm_priority: number; // 1=Low, 2=Med, 3=High, 4=Urgent, 5=Critical
-  alarm_level?: string;   // H / HH / L / LL — which limit was crossed (NOT priority)
+  alarm_level?: string;   // H / HH / L / LL â€” which limit was crossed (NOT priority)
   severity: "CRITICAL" | "HIGH" | "URGENT" | "WARNING" | "LOW";
   occurrence_count?: number; // How many times this limit has fired since card was raised
   instance_seq?: number;
@@ -29,7 +29,7 @@ interface Alarm {
   clear_notes?: string;
   last_cleared_at?: string;   // last time this alarm key was ever cleared (from audit trail)
   last_cleared_by?: string;   // operator who last cleared it
-  recent_raise_times?: string[]; // last ≤3 ALARM_RAISED timestamps, newest first
+  recent_raise_times?: string[]; // last â‰¤3 ALARM_RAISED timestamps, newest first
   raised_at: string;
   duration_minutes: number;
   status: "ONGOING" | "CLEARED";
@@ -44,7 +44,7 @@ interface SuppressedAlarm {
   alarm_level: string;
   suppressed_by: string;
   suppressed_at: string;
-  suppress_until: string | null; // always set — indefinite not permitted
+  suppress_until: string | null; // always set â€” indefinite not permitted
   duration_hours: number | null;
   reason: string;
   notes: string;
@@ -104,23 +104,23 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [isExpanded, setIsExpanded] = useState(true);
   const [loading, setLoading] = useState(true);
-  // Per-alarm in-flight tracking — replaces single `acknowledging` id.
+  // Per-alarm in-flight tracking â€” replaces single `acknowledging` id.
   // Multiple alarms can now show spinners simultaneously (e.g. ACK ALL).
   const [pendingOps, setPendingOps] = useState<Set<number>>(new Set());
   const addPending    = useCallback((id: number) => setPendingOps(prev => { const s = new Set(prev); s.add(id);    return s; }), []);
   const removePending = useCallback((id: number) => setPendingOps(prev => { const s = new Set(prev); s.delete(id); return s; }), []);
   const isPending     = (id: number) => pendingOps.has(id);
 
-  // Polling overlap guard — skip poll cycle if previous fetch still running
+  // Polling overlap guard â€” skip poll cycle if previous fetch still running
   const pollingInProgress = useRef(false);
   // Starvation fix: track when polling lock was acquired; force-reset if stuck >15s
   const pollingStartedAt = useRef<number | null>(null);
-  // Debounce ref — coalesce multiple post-ACK refreshes into one
+  // Debounce ref â€” coalesce multiple post-ACK refreshes into one
   const refreshDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Circuit breaker: track consecutive fetch failures
   const consecutiveFailures = useRef(0);
   const [isDegraded, setIsDegraded] = useState(false);
-  // Timer refs for opMessages — cleaned up on unmount (fix: no leaking setTimeouts)
+  // Timer refs for opMessages â€” cleaned up on unmount (fix: no leaking setTimeouts)
   const opMessageTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   // ACK ALL: selected alarm ids (max 10 at a time)
@@ -162,20 +162,21 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
   const [suppressedAlarms, setSuppressedAlarms] = useState<SuppressedAlarm[]>([]);
   const [showSuppressed, setShowSuppressed] = useState(false);
 
-  // ── Metrics ─────────────────────────────────────────────────────────────
+  // â”€â”€ Metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // lastSyncAt: epoch ms of last successful fetchSnapshot completion
   const lastSyncAt = useRef<number | null>(null);
   // syncLatencyMs: how long the last fetchSnapshot took (ms)
   const [syncLatencyMs, setSyncLatencyMs] = useState<number | null>(null);
-  // syncTick: drives the 'X s ago' counter — stored as a ref so the 1-second
+  // syncTick: drives the 'X s ago' counter â€” stored as a ref so the 1-second
   // tick does NOT re-render the full component (only the metrics bar needs it).
   // We piggyback on a lightweight state only used in the metrics IIFE.
   const [metricsSeq, setMetricsSeq] = useState(0); // increments 1/s for metrics bar only
   const { user } = useAuth();
   const canOperateAlarms = usePermission('alarms', 'canOperate');
+  const canViewAlarms    = usePermission('alarms', 'canView');
 
   // 60-second tick: refreshes live elapsed durations on alarm cards (e.g. "+4m")
-  // 1-second tick: updates metrics bar 'X s ago' — only triggers a metrics re-render
+  // 1-second tick: updates metrics bar 'X s ago' â€” only triggers a metrics re-render
   useEffect(() => {
     const timer     = setInterval(() => setTick(t => t + 1), 60_000);
     const metricsTmr = setInterval(() => setMetricsSeq(s => s + 1), 1_000);
@@ -209,7 +210,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
   const mergeDbWithTemporaryMqtt = (existing: Alarm[], dbAlarms: Alarm[]) => {
     const temporaryLiveAlarms = existing.filter(isTemporaryMqttAlarm);
 
-    // Key on alarm_key (tag_id + level) — this is the stable card identity.
+    // Key on alarm_key (tag_id + level) â€” this is the stable card identity.
     // current_event_id (alarm.id) changes on every oscillation hit, so it
     // cannot be used as the freeze key.
     const existingDbByKey = new Map(
@@ -222,7 +223,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       const stableKey = (dbAlarm as any).alarm_key ?? `${dbAlarm.tag_id}_${dbAlarm.alarm_level ?? ''}`;
       const prev = existingDbByKey.get(stableKey);
       if (prev) {
-        // Freeze the first-hit timestamp and PV@Trip value — never overwrite once set
+        // Freeze the first-hit timestamp and PV@Trip value â€” never overwrite once set
         return {
           ...dbAlarm,
           raised_at:          prev.raised_at,
@@ -248,16 +249,17 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     return sortByPriorityAndTime(merged);
   };
 
-  // ── Issue 2 fix: REST snapshot on mount + on reconnect ──────────────────
+  // â”€â”€ Issue 2 fix: REST snapshot on mount + on reconnect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Socket.IO / MQTT handles live *deltas* only (new transitions).
   // REST provides the authoritative snapshot so reconnects never miss state.
   const fetchSnapshot = async (forceHardReload = false) => {
+    if (!canViewAlarms) return; // user lost alarm view access
     // Starvation fix: if polling lock has been held >15s, force-reset it
     const MAX_POLL_TIME = 15_000;
     if (pollingInProgress.current) {
       const heldMs = pollingStartedAt.current ? Date.now() - pollingStartedAt.current : 0;
       if (!forceHardReload && heldMs < MAX_POLL_TIME) return; // still within allowed window
-      console.warn(`[AlarmPanel] Polling lock stale for ${heldMs}ms — force-resetting`);
+      console.warn(`[AlarmPanel] Polling lock stale for ${heldMs}ms â€” force-resetting`);
       pollingInProgress.current = false; // force-release stale lock
     }
     // Circuit breaker: if backend is repeatedly failing, back off
@@ -290,7 +292,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       consecutiveFailures.current += 1;
       console.warn(`Alarm snapshot fetch failed (attempt ${consecutiveFailures.current}):`, err);
       if (consecutiveFailures.current >= 5 && !isDegraded) {
-        console.error('[AlarmPanel] Circuit breaker OPEN — 5 consecutive failures. Switching to degraded mode.');
+        console.error('[AlarmPanel] Circuit breaker OPEN â€” 5 consecutive failures. Switching to degraded mode.');
         setIsDegraded(true);
       }
     } finally {
@@ -301,25 +303,25 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
   };
 
   // Always point the ref at the freshest fetchSnapshot (runs every render,
-  // which is fine — assignment is O(1) and has no side effects).
+  // which is fine â€” assignment is O(1) and has no side effects).
   fetchSnapshotRef.current = fetchSnapshot;
 
-  // Debounced refresh — collapses many post-ACK refresh calls (e.g. ACK ALL)
+  // Debounced refresh â€” collapses many post-ACK refresh calls (e.g. ACK ALL)
   // into a single fetch 600 ms after the last call.
   const scheduleRefresh = useCallback(() => {
     if (refreshDebounceTimer.current) clearTimeout(refreshDebounceTimer.current);
     refreshDebounceTimer.current = setTimeout(() => {
       refreshDebounceTimer.current = null;
-      fetchSnapshotRef.current(); // always calls the latest fetchSnapshot — no stale closure
+      fetchSnapshotRef.current(); // always calls the latest fetchSnapshot â€” no stale closure
     }, 600);
   }, []); // stable: no deps needed because we go through the ref
 
   useEffect(() => {
     fetchSnapshotRef.current(); // initial load
-    // Re-fetch every 5 s — always uses latest fetchSnapshot via the ref
+    // Re-fetch every 5 s â€” always uses latest fetchSnapshot via the ref
     const guard = setInterval(() => fetchSnapshotRef.current(), 5_000);
     return () => clearInterval(guard);
-  }, []); // intentionally empty — ref keeps this fresh
+  }, []); // intentionally empty â€” ref keeps this fresh
 
   // Real-time alarm updates via WebSocket/SocketIO
   // NOTE: This is for INSTANT display of NEW alarms (<1 second latency)
@@ -332,7 +334,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       }
     };
     
-    // Issue 2: live MQTT events are *deltas* — apply against current state, never full overwrite.
+    // Issue 2: live MQTT events are *deltas* â€” apply against current state, never full overwrite.
     // Use transition_seq to discard stale / out-of-order messages.
     const handleRealtimeAlarm = (alarmData: any) => {
 
@@ -375,7 +377,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
         const existing  = prevAlarms.findIndex(a => a.tag_id === tagId && !isTemporaryMqttAlarm(a));
 
         if (existing >= 0) {
-          // DB-backed alarm already present — apply delta only if newer
+          // DB-backed alarm already present â€” apply delta only if newer
           const cur = prevAlarms[existing];
           // Stale check: if we have a real DB id and a higher-or-equal seq, keep current
           const curSeq = (cur as any)._transitionSeq ?? 0;
@@ -388,7 +390,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
           return sortByPriorityAndTime(updated);
         }
 
-        // No DB alarm yet — add temporary entry
+        // No DB alarm yet â€” add temporary entry
         const tmpIdx = prevAlarms.findIndex(a => a.tag_id === tagId && isTemporaryMqttAlarm(a));
         if (tmpIdx >= 0) {
           const updated = [...prevAlarms];
@@ -434,7 +436,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "4. Inspect control valve position and operation",
             "5. Monitor for freeze protection if applicable"
           ],
-          safety: priority >= 4 ? "⚠️ CRITICAL: May lead to equipment damage or process upset. Take immediate action." : "Monitor closely. Document actions taken."
+          safety: priority >= 4 ? "âš ï¸ CRITICAL: May lead to equipment damage or process upset. Take immediate action." : "Monitor closely. Document actions taken."
         };
       
       case 'PT': // Pressure Transmitter
@@ -453,7 +455,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "4. Inspect control valve operation",
             "5. Monitor for cavitation or suction issues"
           ],
-          safety: priority >= 4 ? "⚠️ CRITICAL: Pressure excursions can cause rupture or process failure. Immediate action required." : "Monitor pressure trends. Check process stability."
+          safety: priority >= 4 ? "âš ï¸ CRITICAL: Pressure excursions can cause rupture or process failure. Immediate action required." : "Monitor pressure trends. Check process stability."
         };
       
       case 'FT': // Flow Transmitter
@@ -472,7 +474,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "4. Inspect strainers and filters for clogging",
             "5. Monitor upstream pressure and supply conditions"
           ],
-          safety: priority >= 4 ? "⚠️ CRITICAL: Abnormal flow can affect product quality or equipment protection. Take prompt action." : "Document flow trends. Check process requirements."
+          safety: priority >= 4 ? "âš ï¸ CRITICAL: Abnormal flow can affect product quality or equipment protection. Take prompt action." : "Document flow trends. Check process requirements."
         };
       
       case 'LT': // Level Transmitter
@@ -491,7 +493,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "4. Check for leaks or drain valve issues",
             "5. Monitor pump suction protection if applicable"
           ],
-          safety: priority >= 4 ? "⚠️ CRITICAL: Level excursions can cause overflow, pump damage, or process upset. Act immediately." : "Monitor level trends. Verify control system response."
+          safety: priority >= 4 ? "âš ï¸ CRITICAL: Level excursions can cause overflow, pump damage, or process upset. Act immediately." : "Monitor level trends. Verify control system response."
         };
       
       case 'VT': // Vibration Transmitter
@@ -505,7 +507,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "5. Check for resonance or process-induced vibration",
             "6. If >10 mm/s: Consider emergency shutdown"
           ],
-          safety: "⚠️ CRITICAL: High vibration can cause catastrophic bearing or shaft failure. Shutdown if vibration increases rapidly."
+          safety: "âš ï¸ CRITICAL: High vibration can cause catastrophic bearing or shaft failure. Shutdown if vibration increases rapidly."
         };
       
       case 'CT': // Current Transmitter
@@ -525,7 +527,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "4. Verify power supply and control signals",
             "5. Check for process upset (no-load condition)"
           ],
-          safety: priority >= 4 ? "⚠️ CRITICAL: Abnormal motor operation can indicate equipment failure. Investigate immediately." : "Monitor motor parameters. Check for trends."
+          safety: priority >= 4 ? "âš ï¸ CRITICAL: Abnormal motor operation can indicate equipment failure. Investigate immediately." : "Monitor motor parameters. Check for trends."
         };
       
       default: // Generic alarm guidance
@@ -539,7 +541,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             "5. Contact supervisor/engineer if condition persists",
             "6. Document all actions taken in log book"
           ],
-          safety: priority >= 4 ? "⚠️ CRITICAL: High priority alarm requires immediate attention. Follow site emergency procedures." : "Monitor condition. Investigate cause. Document response."
+          safety: priority >= 4 ? "âš ï¸ CRITICAL: High priority alarm requires immediate attention. Follow site emergency procedures." : "Monitor condition. Investigate cause. Document response."
         };
     }
   };
@@ -629,9 +631,9 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     }
   };
 
-  // Show absolute HH:MM:SS — makes it obvious the value is frozen (first-hit time)
+  // Show absolute HH:MM:SS â€” makes it obvious the value is frozen (first-hit time)
   const formatTimestamp = (timestamp: string) => {
-    if (!timestamp) return '—';
+    if (!timestamp) return 'â€”';
     const date = new Date(timestamp);
     if (isNaN(date.getTime())) return timestamp;
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -669,14 +671,14 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     event.stopPropagation();
 
     if (!isDatabaseBackedAlarm(alarm)) {
-      // Live MQTT alarm — DB hasn't saved it yet, can't ACK without a DB id
-      console.warn('ACK skipped — alarm not yet in DB:', alarm.tag_id);
+      // Live MQTT alarm â€” DB hasn't saved it yet, can't ACK without a DB id
+      console.warn('ACK skipped â€” alarm not yet in DB:', alarm.tag_id);
       return;
     }
 
     const alarmId = alarm.id;
 
-    // Duplicate click guard — ignore if request already in-flight for this alarm
+    // Duplicate click guard â€” ignore if request already in-flight for this alarm
     if (isPending(alarmId)) return;
 
     const username = user?.username || 'operator';
@@ -714,13 +716,13 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       }
 
       if (response.status === 404 || (data.error || '').toLowerCase().includes('not found')) {
-        // Alarm already gone — state machine moved it on. Refresh silently.
+        // Alarm already gone â€” state machine moved it on. Refresh silently.
         scheduleRefresh();
         return;
       }
 
       if (response.status === 409) {
-        // Another operator already acknowledged this alarm — not an error, just stale UI.
+        // Another operator already acknowledged this alarm â€” not an error, just stale UI.
         console.info(`ACK race on alarm ${alarmId}: already handled (${data.current_state ?? 'unknown state'})`);
         scheduleRefresh();
         return;
@@ -729,13 +731,13 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       if (!response.ok) {
         const errMsg = data.error || `Server error (HTTP ${response.status})`;
         console.error(`ACK failed for alarm ${alarmId}: HTTP ${response.status}`, errMsg);
-        showOpMessage(alarmId, `❌ ACK failed: ${errMsg}`, 'error');
+        showOpMessage(alarmId, `âŒ ACK failed: ${errMsg}`, 'error');
         scheduleRefresh();
         return;
       }
 
       if (data.success) {
-        // Optimistic local update — avoids waiting for the next poll cycle
+        // Optimistic local update â€” avoids waiting for the next poll cycle
         setAlarms(prevAlarms =>
           prevAlarms.map(a =>
             a.id === alarmId
@@ -746,20 +748,20 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       } else {
         const errMsg = data.error || 'Acknowledge rejected by server';
         console.warn(`ACK returned success=false for alarm ${alarmId}:`, errMsg);
-        showOpMessage(alarmId, `❌ ACK failed: ${errMsg}`, 'error');
-        // Rollback only this alarm — safe for concurrent ACK ALL (no sibling clobber)
+        showOpMessage(alarmId, `âŒ ACK failed: ${errMsg}`, 'error');
+        // Rollback only this alarm â€” safe for concurrent ACK ALL (no sibling clobber)
         setAlarms(prev => prev.map(a => a.id === alarmId ? alarmBeforeOptimistic : a));
         scheduleRefresh();
       }
     } catch (error: any) {
       if (error?.name === 'AbortError') {
-        console.warn(`ACK timed out for alarm ${alarmId} — network slow or C# overloaded`);
-        showOpMessage(alarmId, '⏱ ACK timed out — server did not respond. Try again.', 'error');
+        console.warn(`ACK timed out for alarm ${alarmId} â€” network slow or C# overloaded`);
+        showOpMessage(alarmId, 'â± ACK timed out â€” server did not respond. Try again.', 'error');
       } else {
         console.error('ACK request failed:', error);
-        showOpMessage(alarmId, '❌ ACK failed — could not reach server. Try again.', 'error');
+        showOpMessage(alarmId, 'âŒ ACK failed â€” could not reach server. Try again.', 'error');
       }
-      // Rollback only this alarm — server never confirmed, revert to pre-optimistic state
+      // Rollback only this alarm â€” server never confirmed, revert to pre-optimistic state
       setAlarms(prev => prev.map(a => a.id === alarmId ? alarmBeforeOptimistic : a));
       scheduleRefresh();
     } finally {
@@ -781,7 +783,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     
     // Validate that a reason is selected (ISA-18.2 requirement)
     if (!clearReason) {
-      // No alert() — show inline message on the alarm card
+      // No alert() â€” show inline message on the alarm card
       showOpMessage(clearingAlarmId, 'Select a clear reason (ISA-18.2 required)', 'warn');
       return;
     }
@@ -823,16 +825,16 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       }
 
       if (data.success) {
-        // Optimistic removal — cleared alarms leave the active panel immediately.
+        // Optimistic removal â€” cleared alarms leave the active panel immediately.
         // History panel (/history route) will show the full lifecycle.
         setAlarms(prev => prev.filter(a => a.id !== clearingAlarmId));
-        console.log(`✅ Alarm ${clearingAlarmId} cleared by ${username}: ${clearReason}`);
+        console.log(`âœ… Alarm ${clearingAlarmId} cleared by ${username}: ${clearReason}`);
         setClearingAlarmId(null);
         scheduleRefresh(); // re-sync so any backend-only state changes are reflected
       } else {
         const errMsg = data.error || data.reason || 'Clear rejected by server';
         console.error('CLEAR failed:', errMsg);
-        showOpMessage(clearingAlarmId, `❌ Clear failed: ${errMsg}`, 'error');
+        showOpMessage(clearingAlarmId, `âŒ Clear failed: ${errMsg}`, 'error');
         setClearingAlarmId(null);
         // Rollback only this alarm (safe for concurrent ops)
         if (alarmBeforeClear) setAlarms(prev => prev.map(a => a.id === clearingAlarmId ? alarmBeforeClear : a));
@@ -841,10 +843,10 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     } catch (error: any) {
       if (error?.name === 'AbortError') {
         console.warn(`CLEAR timed out for alarm ${clearingAlarmId}`);
-        showOpMessage(clearingAlarmId ?? 0, '⏱ Clear timed out — server did not respond. Try again.', 'error');
+        showOpMessage(clearingAlarmId ?? 0, 'â± Clear timed out â€” server did not respond. Try again.', 'error');
       } else {
         console.error('CLEAR request failed:', error);
-        showOpMessage(clearingAlarmId ?? 0, '❌ Clear failed — could not reach server. Try again.', 'error');
+        showOpMessage(clearingAlarmId ?? 0, 'âŒ Clear failed â€” could not reach server. Try again.', 'error');
       }
       setClearingAlarmId(null);
       // Rollback only this alarm
@@ -863,7 +865,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     e.stopPropagation();
     if (!isDatabaseBackedAlarm(alarm)) return;
     if (alarm.alarm_state !== 'ACTIVE_UNACK' && alarm.alarm_state !== 'RTN_UNACK' && alarm.alarm_state !== null) return;
-    // ISA-18.2: Block HIGH/URGENT/CRITICAL from batch ACK — require individual deliberate action
+    // ISA-18.2: Block HIGH/URGENT/CRITICAL from batch ACK â€” require individual deliberate action
     const priority = alarm.alarm_priority ?? 1;
     if (priority > ACK_ALL_MAX_PRIORITY) {
       const label = priority === 5 ? 'CRITICAL' : priority === 4 ? 'URGENT' : 'HIGH';
@@ -877,7 +879,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       } else {
         if (s.size >= ACK_SELECTION_LIMIT) {
           showOpMessage(alarm.id, `Max ${ACK_SELECTION_LIMIT} alarms can be selected at once`, 'warn');
-          return prev; // reject — no change
+          return prev; // reject â€” no change
         }
         s.add(alarm.id);
       }
@@ -903,11 +905,11 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
       );
 
     const skipped = ids.length - validAlarms.length;
-    if (skipped > 0) console.info(`[ACK ALL] Skipped ${skipped} alarm(s) — already handled by another operator`);
+    if (skipped > 0) console.info(`[ACK ALL] Skipped ${skipped} alarm(s) â€” already handled by another operator`);
     if (validAlarms.length === 0) { scheduleRefresh(); return; }
 
     const BATCH = 10;
-    const STAGGER_MS = 50; // 50ms between requests — prevents socket burst on industrial networks
+    const STAGGER_MS = 50; // 50ms between requests â€” prevents socket burst on industrial networks
     const syntheticEvent = { stopPropagation: () => {} } as React.MouseEvent;
     for (let i = 0; i < validAlarms.length; i += BATCH) {
       const batch = validAlarms.slice(i, i + BATCH);
@@ -985,7 +987,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
         setSuppressReason('');
         setSuppressNotes('');
         setSuppressDuration(1);
-        fetchSnapshotRef.current(); // always calls latest fetchSnapshot — no stale closure
+        fetchSnapshotRef.current(); // always calls latest fetchSnapshot â€” no stale closure
       } else {
         console.error('Suppress failed:', data.error);
         showOpMessage(alarmId, `Suppress failed: ${data.error ?? 'unknown error'}`, 'err');
@@ -993,10 +995,10 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         console.warn(`Suppress timed out for alarm ${alarmId}`);
-        showOpMessage(alarmId, 'Suppress request timed out — try again', 'err');
+        showOpMessage(alarmId, 'Suppress request timed out â€” try again', 'err');
       } else {
         console.error('Suppress request failed:', e);
-        showOpMessage(alarmId, 'Suppress request failed — check network', 'err');
+        showOpMessage(alarmId, 'Suppress request failed â€” check network', 'err');
       }
     } finally {
       clearTimeout(timeoutId);
@@ -1060,16 +1062,16 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
           // DB id wins over temp WebSocket id
           seen.set(compositeKey, alarm);
         } else if (existing.id > 1000000000000 && alarm.id > 1000000000000) {
-          // Both temp — keep the newer timestamp
+          // Both temp â€” keep the newer timestamp
           if (alarm.id > existing.id) seen.set(compositeKey, alarm);
         }
-        // else: duplicate DB row — keep first seen (lower is older, more stable)
+        // else: duplicate DB row â€” keep first seen (lower is older, more stable)
       }
     });
     return Array.from(seen.values());
   }, [alarms]);
   
-  // Filtering + search — recomputes only when alarms, search, or toggle changes.
+  // Filtering + search â€” recomputes only when alarms, search, or toggle changes.
   // No console.log here: this memo runs on every keystroke and every poll cycle.
   const { displayedAlarms, matchedCount } = useMemo(() => {
     const baseFilteredAlarms = showClearedAlarms
@@ -1138,14 +1140,14 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
               {activeAlarms.length === 0 ? "Normal" : `${activeAlarms.length} Active`}
               {/* ISA-18.2: Warn if alarm flood (>10 alarms) */}
               {activeAlarms.length > 10 && (
-                <span className="text-orange-400 font-bold ml-1">⚠ FLOOD</span>
+                <span className="text-orange-400 font-bold ml-1">âš  FLOOD</span>
               )}
             </p>
           </div>
         </div>
         
         <div className="flex items-center gap-2">
-          {/* ACK ALL — only shown when unack alarms exist AND user can operate */}
+          {/* ACK ALL â€” only shown when unack alarms exist AND user can operate */}
           {canOperateAlarms && selectedForAck.size > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowAckAllConfirm(true); }}
@@ -1171,7 +1173,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             )}
             title={showClearedAlarms ? "Hide cleared alarms" : "Show cleared alarms"}
           >
-            {showClearedAlarms ? "✓" : "✗"} Cleared
+            {showClearedAlarms ? "âœ“" : "âœ—"} Cleared
           </button>
 
           {/* Alarm History button */}
@@ -1184,7 +1186,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
           </button>
           
           <span className="text-xs text-slate-400">
-            {isExpanded ? "▼" : "▶"}
+            {isExpanded ? "â–¼" : "â–¶"}
           </span>
         </div>
       </div>
@@ -1201,7 +1203,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                 value={searchTag}
                 onChange={(e) => {
                   const newValue = e.target.value;
-                  console.log('⌨️ Search input changed:', `"${searchTag}"`, '→', `"${newValue}"`);
+                  console.log('âŒ¨ï¸ Search input changed:', `"${searchTag}"`, 'â†’', `"${newValue}"`);
                   setSearchTag(newValue);
                 }}
                 placeholder="Search by tag name..."
@@ -1210,7 +1212,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
               {searchTag && (
                 <button
                   onClick={() => {
-                    console.log('❌ Clearing search');
+                    console.log('âŒ Clearing search');
                     setSearchTag("");
                   }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
@@ -1236,11 +1238,11 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
             </div>
           ) : (
             <>
-              {/* ── Circuit breaker degraded banner ───────────────────────── */}
+              {/* â”€â”€ Circuit breaker degraded banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
               {isDegraded && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-red-950/80 border-b border-red-700 text-[9px] font-semibold text-red-300">
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-                  <span>⚠ BACKEND UNREACHABLE — {consecutiveFailures.current} consecutive failures. Showing last known state.</span>
+                  <span>âš  BACKEND UNREACHABLE â€” {consecutiveFailures.current} consecutive failures. Showing last known state.</span>
                   <button
                     onClick={() => { consecutiveFailures.current = 0; setIsDegraded(false); fetchSnapshot(true); }}
                     className="ml-auto px-2 py-0.5 rounded border border-red-500 hover:bg-red-800/50 transition-colors"
@@ -1250,7 +1252,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                 </div>
               )}
 
-              {/* ── Metrics bar ────────────────────────────────────────────── */}
+              {/* â”€â”€ Metrics bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
               {(() => {
                 void metricsSeq; // ensures 1-second tick re-renders this block
                 const pendingCount = pendingOps.size;
@@ -1260,19 +1262,19 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                   ? Math.floor((Date.now() - lastSyncAt.current) / 1000)
                   : null;
                 const lastSyncStr = secAgo === null
-                  ? '—'
+                  ? 'â€”'
                   : secAgo < 5  ? 'just now'
                   : secAgo < 60 ? `${secAgo}s ago`
                   : `${Math.floor(secAgo / 60)}m ago`;
-                const latencyStr = syncLatencyMs !== null ? `${syncLatencyMs}ms` : '—';
-                // Latency colour: green <300ms, amber <1000ms, red ≥1000ms
+                const latencyStr = syncLatencyMs !== null ? `${syncLatencyMs}ms` : 'â€”';
+                // Latency colour: green <300ms, amber <1000ms, red â‰¥1000ms
                 const latencyColor = syncLatencyMs === null ? 'text-slate-500'
                   : syncLatencyMs < 300  ? 'text-green-400'
                   : syncLatencyMs < 1000 ? 'text-amber-400'
                   : 'text-red-400';
                 // Staleness warning: if last sync was >10s ago something is wrong
                 const isStale = secAgo !== null && secAgo > 10;
-                // Queue saturation colour: green <50%, amber ≥50%, red ≥80%
+                // Queue saturation colour: green <50%, amber â‰¥50%, red â‰¥80%
                 const queueColor = queuedCount === 0 ? 'text-slate-500'
                   : saturationPct >= 80 ? 'text-red-400'
                   : saturationPct >= 50 ? 'text-amber-300'
@@ -1296,30 +1298,30 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                       Pending: {pendingCount}
                     </span>
 
-                    <span className="text-slate-700">│</span>
+                    <span className="text-slate-700">â”‚</span>
 
-                    {/* Queued for ACK — with saturation indicator */}
+                    {/* Queued for ACK â€” with saturation indicator */}
                     <span className={cn("flex items-center gap-1", queueColor)}>
                       Queued: {queuedCount}/{ACK_SELECTION_LIMIT}
-                      {saturationPct >= 80 && <span title={`${saturationPct}% — near limit`}>⚠</span>}
+                      {saturationPct >= 80 && <span title={`${saturationPct}% â€” near limit`}>âš </span>}
                     </span>
 
-                    <span className="text-slate-700">│</span>
+                    <span className="text-slate-700">â”‚</span>
 
                     {/* Last sync */}
                     <span className={isStale ? "text-amber-300" : "text-slate-500"}>
-                      {isStale && <span className="mr-0.5">⚠</span>}
+                      {isStale && <span className="mr-0.5">âš </span>}
                       Sync: {lastSyncStr}
                     </span>
 
-                    <span className="text-slate-700">│</span>
+                    <span className="text-slate-700">â”‚</span>
 
                     {/* Latency */}
                     <span className={latencyColor}>
                       {latencyStr}
                     </span>
 
-                    {/* Manual refresh — Shift+Click bypasses debounce for hard reload */}
+                    {/* Manual refresh â€” Shift+Click bypasses debounce for hard reload */}
                     <button
                       onClick={(e) => {
                         if (e.shiftKey) {
@@ -1334,7 +1336,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                       title="Refresh (Shift+Click = hard reload, bypasses all guards)"
                       className="ml-auto text-slate-500 hover:text-slate-300 transition-colors"
                     >
-                      ↻
+                      â†»
                     </button>
                   </div>
                 );
@@ -1401,7 +1403,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                           "absolute right-1 bg-green-700/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded border border-green-500",
                           searchTag.trim() && isMatchingSearch ? "top-8" : "top-1"
                         )}>
-                          ✓ CLEARED
+                          âœ“ CLEARED
                         </div>
                       )}
                       
@@ -1440,7 +1442,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                 <span className="font-mono font-bold text-cyan-300 min-w-[40px] text-right">{alarm.alarm_setpoint.toFixed(2)}</span>
                               </div>
                               <div className="flex items-center gap-1">
-                                <span className="text-slate-400 font-medium" title="Frozen trigger value — the exact PV when alarm fired">PV@Trip:</span>
+                                <span className="text-slate-400 font-medium" title="Frozen trigger value â€” the exact PV when alarm fired">PV@Trip:</span>
                                 <span className={cn("font-mono font-bold min-w-[40px] text-right", config.textColor)}>
                                   {alarm.alarm_actual_value.toFixed(2)}
                                 </span>
@@ -1491,7 +1493,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                               <History className="w-3 h-3" />
                             </button>
                             
-                            {/* Last ≤3 raise times — always live from DB, always updated */}
+                            {/* Last â‰¤3 raise times â€” always live from DB, always updated */}
                             <div className="flex items-center gap-1 flex-wrap">
                               {(alarm.recent_raise_times && alarm.recent_raise_times.length > 0
                                 ? alarm.recent_raise_times
@@ -1506,16 +1508,16 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                   title={i === 0 ? `Last raised: ${t}` : `Previous raise #${i + 1}: ${t}`}
                                 >
                                   {i === 0 && <Clock className="w-3 h-3 text-amber-400" />}
-                                  {i > 0 && <span className="text-slate-600">↩</span>}
+                                  {i > 0 && <span className="text-slate-600">â†©</span>}
                                   <span>{formatTimestamp(t)}</span>
                                 </div>
                               ))}
                               {alarm.recent_raise_times && alarm.recent_raise_times.length > 1 && (
                                 <span
                                   className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-900/60 border border-amber-600 text-amber-300 whitespace-nowrap"
-                                  title={`Raised ${alarm.recent_raise_times.length}x recently — value keeps returning above limit`}
+                                  title={`Raised ${alarm.recent_raise_times.length}x recently â€” value keeps returning above limit`}
                                 >
-                                  ×{alarm.recent_raise_times.length}
+                                  Ã—{alarm.recent_raise_times.length}
                                 </span>
                               )}
                             </div>
@@ -1535,7 +1537,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                             {alarm.last_cleared_by && alarm.last_cleared_at && (
                               <div
                                 className="flex items-center gap-0.5 text-[9px] text-green-400 whitespace-nowrap"
-                                title={`Last cleared at ${alarm.last_cleared_at} — alarm re-triggered since then`}
+                                title={`Last cleared at ${alarm.last_cleared_at} â€” alarm re-triggered since then`}
                               >
                                 <XCircle className="w-3 h-3" />
                                 <span>Cleared {alarm.last_cleared_by} @ {formatTimestamp(alarm.last_cleared_at)}</span>
@@ -1548,7 +1550,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                             {/* Status Badge */}
                             {(alarm.alarm_state === 'ACTIVE_ACK' || alarm.alarm_state === 'CLEARED') && (
                               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider text-blue-300 bg-blue-900/70 border border-blue-500 whitespace-nowrap">
-                                ✓ ACK
+                                âœ“ ACK
                               </span>
                             )}
                             {alarm.alarm_state === 'RTN_UNACK' && (
@@ -1556,7 +1558,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                 RTN
                               </span>
                             )}
-                            {/* Alarm Level badge (H/HH/L/LL) — what limit was crossed */}
+                            {/* Alarm Level badge (H/HH/L/LL) â€” what limit was crossed */}
                             {alarm.alarm_level && (() => {
                               const lvl = alarm.alarm_level.toUpperCase();
                               const lvlStyle =
@@ -1606,7 +1608,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                             {/* Action Button */}
                             {(alarm.alarm_state === 'ACTIVE_UNACK' || alarm.alarm_state === 'RTN_UNACK' || alarm.alarm_state === null) ? (
                               <div className="flex items-center gap-1">
-                                {/* Selection checkbox for ACK ALL — Viewer cannot operate */}
+                                {/* Selection checkbox for ACK ALL â€” Viewer cannot operate */}
                                 {canOperateAlarms && isDatabaseBackedAlarm(alarm) && (
                                   <button
                                     onClick={(e) => toggleSelectForAck(alarm, e)}
@@ -1620,15 +1622,15 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                         : "bg-slate-800 border-slate-600 hover:border-orange-500 text-slate-500"
                                     )}
                                   >
-                                    {selectedForAck.has(alarm.id) && <span className="text-[8px] font-bold leading-none">✓</span>}
+                                    {selectedForAck.has(alarm.id) && <span className="text-[8px] font-bold leading-none">âœ“</span>}
                                   </button>
                                 )}
-                                {/* ACK — Viewer cannot operate */}
+                                {/* ACK â€” Viewer cannot operate */}
                                 {canOperateAlarms && (
                                   <button
                                     onClick={(e) => handleAcknowledge(alarm, e)}
                                     disabled={isPending(alarm.id) || !isDatabaseBackedAlarm(alarm)}
-                                    title={!isDatabaseBackedAlarm(alarm) ? "Waiting for DB save before acknowledge" : alarm.alarm_state === 'RTN_UNACK' ? "ACK this alarm — value returned to normal, ACK will CLEAR it" : "Acknowledge alarm"}
+                                    title={!isDatabaseBackedAlarm(alarm) ? "Waiting for DB save before acknowledge" : alarm.alarm_state === 'RTN_UNACK' ? "ACK this alarm â€” value returned to normal, ACK will CLEAR it" : "Acknowledge alarm"}
                                     className={cn(
                                       "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap",
                                       "bg-slate-700 hover:bg-slate-600 text-white",
@@ -1645,7 +1647,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                     )}
                                   </button>
                                 )}
-                                {/* SUPP — Viewer cannot operate */}
+                                {/* SUPP â€” Viewer cannot operate */}
                                 {canOperateAlarms && isDatabaseBackedAlarm(alarm) && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setSuppressModalAlarm(alarm); }}
@@ -1661,7 +1663,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                 {alarm.acknowledged_by && (
                                   <div className="flex flex-col gap-0.5">
                                     <div className="text-[9px] text-blue-300 font-semibold whitespace-nowrap">
-                                      ✓ ACK: {alarm.acknowledged_by}
+                                      âœ“ ACK: {alarm.acknowledged_by}
                                     </div>
                                     {alarm.acknowledged_at && (
                                       <div className="text-[9px] text-blue-200/70 font-mono whitespace-nowrap">
@@ -1701,12 +1703,12 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                               <div className="flex flex-col gap-0.5">
                                 {alarm.acknowledged_by && (
                                   <div className="text-[9px] text-blue-300 font-semibold whitespace-nowrap">
-                                    ✓ ACK: {alarm.acknowledged_by}{alarm.acknowledged_at ? ` @ ${formatTimestamp(alarm.acknowledged_at)}` : ''}
+                                    âœ“ ACK: {alarm.acknowledged_by}{alarm.acknowledged_at ? ` @ ${formatTimestamp(alarm.acknowledged_at)}` : ''}
                                   </div>
                                 )}
                                 {alarm.cleared_by && (
                                   <div className="text-[9px] text-green-300 font-semibold whitespace-nowrap">
-                                    ✓ CLR: {alarm.cleared_by}{alarm.cleared_at ? ` @ ${formatTimestamp(alarm.cleared_at)}` : ''}
+                                    âœ“ CLR: {alarm.cleared_by}{alarm.cleared_at ? ` @ ${formatTimestamp(alarm.cleared_at)}` : ''}
                                   </div>
                                 )}
                               </div>
@@ -1881,7 +1883,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
         </div>
       )}
 
-      {/* ── Alarm History Modal ─────────────────────────────────── */}
+      {/* â”€â”€ Alarm History Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {showHistoryModal && (
         <AlarmHistoryModal onClose={() => setShowHistoryModal(false)} />
       )}
@@ -1979,7 +1981,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                   Event Time: {new Date(record.action_timestamp).toLocaleString()}
                                   {record.response_time_seconds && (
                                     <span className="ml-2 text-amber-400 font-semibold">
-                                      ⏱ Response: {Math.floor(record.response_time_seconds / 60)}m {Math.floor(record.response_time_seconds % 60)}s
+                                      â± Response: {Math.floor(record.response_time_seconds / 60)}m {Math.floor(record.response_time_seconds % 60)}s
                                     </span>
                                   )}
                                 </p>
@@ -1988,7 +1990,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                               {/* State Change Badge */}
                               {record.previous_state && (
                                 <div className="text-xs font-mono px-2 py-1 rounded bg-black/40 text-slate-300">
-                                  {record.previous_state} → {record.new_state}
+                                  {record.previous_state} â†’ {record.new_state}
                                 </div>
                               )}
                             </div>
@@ -2066,7 +2068,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
           </div>
         </div>
       )}
-      {/* ── Suppress Modal ──────────────────────────────────────── */}
+      {/* â”€â”€ Suppress Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {suppressModalAlarm && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setSuppressModalAlarm(null)}>
           <div className="bg-slate-800 border-2 border-purple-600 rounded-lg p-6 max-w-md w-full mx-4 shadow-xl" onClick={e => e.stopPropagation()}>
@@ -2090,7 +2092,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                   >{h === 0.25 ? '15m' : h === 0.5 ? '30m' : `${h}h`}</button>
                 ))}
               </div>
-              <p className="text-xs text-orange-400 mt-1">⚠ Maximum suppression is 24 hours. Indefinite suppression is not permitted.</p>
+              <p className="text-xs text-orange-400 mt-1">âš  Maximum suppression is 24 hours. Indefinite suppression is not permitted.</p>
             </div>
 
             {/* Reason */}
@@ -2120,7 +2122,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
               <button onClick={submitSuppressAlarm}
                 disabled={!suppressReason || suppressing === suppressModalAlarm.id}
                 className="flex-1 px-4 py-2 rounded font-bold text-sm bg-purple-700 hover:bg-purple-600 text-white border-2 border-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                {suppressing === suppressModalAlarm.id ? 'Suppressing…' : 'Suppress'}
+                {suppressing === suppressModalAlarm.id ? 'Suppressingâ€¦' : 'Suppress'}
               </button>
               <button onClick={() => setSuppressModalAlarm(null)}
                 className="flex-1 px-4 py-2 rounded font-bold text-sm bg-slate-700 hover:bg-slate-600 text-white border-2 border-slate-600 transition-all">
@@ -2131,15 +2133,15 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
         </div>
       )}
 
-      {/* ── Suppressed Alarms Section ───────────────────────────── */}
+      {/* â”€â”€ Suppressed Alarms Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       {suppressedAlarms.length > 0 && (
         <div className="mt-2 border border-purple-700/50 rounded-lg overflow-hidden">
           <button
             onClick={() => setShowSuppressed(s => !s)}
             className="w-full flex items-center justify-between px-3 py-1.5 bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 text-[10px] font-bold uppercase tracking-wider transition-all"
           >
-            <span>⊘ Suppressed ({suppressedAlarms.length})</span>
-            <span>{showSuppressed ? '▲' : '▼'}</span>
+            <span>âŠ˜ Suppressed ({suppressedAlarms.length})</span>
+            <span>{showSuppressed ? 'â–²' : 'â–¼'}</span>
           </button>
           {showSuppressed && (
             <div className="divide-y divide-purple-900/40">
@@ -2149,8 +2151,8 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                     <span className="font-mono text-[10px] font-bold text-amber-400">{s.tag_name}</span>
                     {s.alarm_level && <span className="ml-1.5 text-[9px] text-purple-300 border border-purple-600 px-1 rounded">{s.alarm_level}</span>}
                     <div className="text-[9px] text-slate-400 mt-0.5">
-                      {s.reason} · by <span className="text-purple-300">{s.suppressed_by}</span> · {formatTimestamp(s.suppressed_at)}
-                      {s.suppress_until ? ` → until ${formatTimestamp(s.suppress_until)}` : ''}
+                      {s.reason} Â· by <span className="text-purple-300">{s.suppressed_by}</span> Â· {formatTimestamp(s.suppressed_at)}
+                      {s.suppress_until ? ` â†’ until ${formatTimestamp(s.suppress_until)}` : ''}
                     </div>
                   </div>
                   <button
@@ -2168,3 +2170,4 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
     </div>
   );
 };
+
