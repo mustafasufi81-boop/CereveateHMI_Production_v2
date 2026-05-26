@@ -13,7 +13,8 @@ import time
 import os
 import sys
 import json
-from datetime import datetime, timedelta, timezone
+import random
+from datetime import datetime, timedelta, timezone, timezone
 from zoneinfo import ZoneInfo
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from flask import Flask, request
@@ -22,6 +23,7 @@ from flask_cors import CORS
 from services.signalr_listener import SignalRListener
 from services.mqtt_client_service import MQTTClientService
 from container import container
+import db_pool
 
 # Import Blueprints
 from controllers.auth_controller import auth_bp
@@ -194,10 +196,8 @@ def api_health():
 
 @app.route('/api/system-status', methods=['GET'])
 def api_system_status():
-    """Detailed system status — OPC/DB/MQTT/SignalR details.
-    Used by the UI system-status panel. Requires no auth (read-only, non-sensitive).
-    """
-    from flask import jsonify as _jsonify
+    """Detailed system status — OPC/DB/MQTT/SignalR/REST-fallback details."""
+    import time as _time
     # DB
     db_ok = False
     try:
@@ -211,20 +211,250 @@ def api_system_status():
         mqtt_ok = bool(container.mqtt_client and container.mqtt_client.is_connected)
     except Exception:
         mqtt_ok = False
-    # SignalR (C# OPC bridge)
+    # SignalR
     signalr_ok = False
     try:
         signalr_ok = bool(container.signalr_listener and container.signalr_listener.is_connected)
     except Exception:
         signalr_ok = False
+
+    # Fix #3: transport state snapshot (safe copy under lock)
+    with _rest_lock:
+        ts = dict(_transport_state)
+
+    from flask import jsonify as _jsonify
     return _jsonify({
-        'flask':    {'ok': True,      'uptime_s': round(_time.time() - _flask_start_time)},
+        'flask':    {'ok': True, 'uptime_s': round(_time.time() - _flask_start_time)},
         'db':       {'ok': db_ok},
         'mqtt':     {'ok': mqtt_ok},
         'signalr':  {'ok': signalr_ok},
-        'clients':  len(connected_clients),
-        'ts':       _time.time(),
+        'transport': {
+            'active_source':    ts['active_source'],
+            'mqtt_alive':       ts['mqtt_alive'],
+            'signalr_alive':    ts['signalr_alive'],
+            'fallback_active':  ts['fallback_active'],
+            'rest_backoff_s':   ts['rest_backoff_s'],
+            'rest_poll_count':  ts['rest_poll_count'],
+            'rest_error_count': ts['rest_error_count'],
+            'rest_last_error':  ts['rest_last_error'],
+        },
+        'clients':   len(connected_clients),
+        'cacheSize': len(latest_tag_values),
+        'ts':        _time.time(),
     }), 200
+
+
+@app.route('/api/source-status', methods=['GET'])
+def api_source_status():
+    """Return per-server_progid connection status.
+
+    Logic:
+    - Query DB for all distinct server_progid values that have at least one
+      enabled tag configured (server_progid IS NOT NULL AND enabled = true).
+    - For each source, check if any tag from that source has a live value in
+      the in-memory cache (latest_tag_values) with a timestamp fresher than
+      60 seconds.
+    - Status per source:
+        'live'          — ≥1 tag with fresh data in cache
+        'disconnected'  — tags configured but NO fresh data arriving
+    - If NO sources are configured in DB, returns empty list (nothing to show).
+    """
+    from flask import jsonify as _jsonify
+    import time as _t
+    from datetime import datetime, timezone
+
+    now_utc = datetime.now(timezone.utc)
+    sources = []
+
+    try:
+        conn = db_pool.get_conn()
+        cur = conn.cursor()
+
+        # Get all distinct server_progids with enabled tags + their tag names
+        cur.execute("""
+            SELECT server_progid, array_agg(tag_name) AS tag_names, COUNT(*) AS tag_count
+            FROM historian_meta.tag_master
+            WHERE server_progid IS NOT NULL AND server_progid <> '' AND enabled = true
+            GROUP BY server_progid
+            ORDER BY server_progid
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        db_pool.return_conn(conn)
+
+        for (progid, tag_names, tag_count) in rows:
+            # Check cache for any live value from this source's tags
+            live_count = 0
+            for tname in (tag_names or []):
+                cached = latest_tag_values.get(tname) or latest_tag_values.get(str(tname))
+                if not cached:
+                    # Also try by tag_id numeric key
+                    continue
+                ts_str = cached.get('timestamp') or cached.get('cachedAt') or cached.get('time')
+                if not ts_str:
+                    continue
+                try:
+                    from dateutil import parser as _dp
+                    ts = _dp.parse(ts_str)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    age_s = (now_utc - ts).total_seconds()
+                    if age_s <= 60:
+                        live_count += 1
+                except Exception:
+                    pass
+
+            sources.append({
+                'server_progid': progid,
+                'tag_count': tag_count,
+                'live_tag_count': live_count,
+                # disconnected = source is configured but zero fresh tags
+                'status': 'live' if live_count > 0 else 'disconnected',
+            })
+
+    except Exception as e:
+        logger.warning(f'[source-status] DB query failed: {e}')
+        return _jsonify({'sources': [], 'error': str(e)}), 200
+
+    return _jsonify({'sources': sources}), 200
+
+
+@app.route('/api/opc-plc-status', methods=['GET'])
+def api_opc_plc_status():
+    """Proxy OPC and PLC connection status from the C# backend.
+
+    Calls:
+      GET http://localhost:5001/api/health/opc   → OPC server status
+      GET http://localhost:5001/api/plc/connections   → PLC gateway status
+
+    Returns combined JSON so the React frontend only needs one call to know
+    whether the OPC server and/or any PLC is disconnected.
+    """
+    from flask import jsonify as _jsonify
+    import requests as _req
+
+    cfg = container.config.get('csharp_backend', {})
+    base = f"http://{cfg.get('host', 'localhost')}:{cfg.get('port', 5001)}"
+    timeout = 3.0
+
+    opc_data = {}
+    plc_data = {}
+    errors = []
+
+    try:
+        r = _req.get(f"{base}/api/health/opc", timeout=timeout)
+        r.raise_for_status()
+        opc_data = r.json()
+    except Exception as e:
+        errors.append(f"opc: {e}")
+        opc_data = {'status': 'Unknown', 'error': str(e)}
+
+    try:
+        r = _req.get(f"{base}/api/plc/connections", timeout=timeout)
+        r.raise_for_status()
+        plc_data = r.json()
+    except Exception as e:
+        errors.append(f"plc: {e}")
+        plc_data = {'success': False, 'connections': [], 'error': str(e)}
+
+    # Derive simple connected flags
+    opc_connected = opc_data.get('status', '').lower() == 'connected'
+    # C# returns { connections: [...], isConnected: bool } per PLC
+    plcs = plc_data.get('connections', plc_data.get('plcs', []))
+    any_plc_disconnected = any(
+        not p.get('isConnected', True)
+        for p in plcs
+        if p.get('enabled', True)
+    )
+
+    return _jsonify({
+        'opc': {
+            'connected': opc_connected,
+            'status':    opc_data.get('status', 'Unknown'),
+            'serverName': opc_data.get('serverName', ''),
+            'tagsConnected': opc_data.get('tagsConnected', 0),
+            'healthScore': opc_data.get('healthScore', 0),
+            'lastError': opc_data.get('lastError'),
+        },
+        'plcs': [
+            {
+                'id':        p.get('plcId') or p.get('id') or p.get('name', ''),
+                'name':      p.get('name', ''),
+                'connected': bool(p.get('isConnected', False)),
+                'protocol':  p.get('protocol', ''),
+                'ipAddress': p.get('ipAddress', ''),
+                'lastError': p.get('lastError', ''),
+                'tagCount':  p.get('tagCount', 0),
+                'lastUpdate': p.get('lastUpdate', ''),
+            }
+            for p in plcs
+        ],
+        'anyPlcDisconnected': any_plc_disconnected,
+        'backendReachable': len(errors) < 2,
+        'errors': errors if errors else None,
+    }), 200
+
+
+# ── Admin Cache Management ──────────────────────────────────────────────────
+
+@app.route('/api/admin/cache/flush', methods=['POST'])
+def admin_cache_flush():
+    """Admin-only: flush the in-memory tag-value cache and re-seed from DB.
+    Does NOT touch sessions, tokens, or any other application state.
+    Requires a valid non-partial JWT belonging to an admin user.
+    """
+    from flask import jsonify as _jsonify
+    # ── Auth check ─────────────────────────────────────────────────────────
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return _jsonify({'message': 'Authorisation required'}), 401
+    token = auth_header.split(' ', 1)[1]
+    token_data = container.auth_service.decode_token(token)
+    if not token_data or token_data.get('partial'):
+        return _jsonify({'message': 'Invalid or partial token'}), 401
+    # Must be admin
+    try:
+        is_admin = container.rbac_service.is_user_admin(token_data['user_id'])
+    except Exception:
+        is_admin = False
+    if not is_admin:
+        return _jsonify({'message': 'Admin access required'}), 403
+    # ── Flush ──────────────────────────────────────────────────────────────
+    global latest_tag_values
+    before = len(latest_tag_values)
+    latest_tag_values.clear()
+    logger.warning(
+        "[CACHE] Admin cache flush: %d entries cleared by user_id=%s (%s)",
+        before, token_data['user_id'], token_data.get('username', '?')
+    )
+    # Re-seed from DB so operators don't stare at a blank screen
+    try:
+        _seed_tag_cache_from_db()
+        after = len(latest_tag_values)
+        logger.info("[CACHE] Re-seeded %d tags from DB after flush", after)
+    except Exception as _exc:
+        logger.warning("[CACHE] Re-seed after flush failed (non-fatal): %s", _exc)
+        after = 0
+    # Audit trail
+    try:
+        container.audit_service.log_action(
+            user_id=token_data['user_id'],
+            username=token_data.get('username', '?'),
+            action_type='CACHE_FLUSH',
+            action_category='admin',
+            target_entity='tag_value_cache',
+            additional_data={'cleared': before, 'reseeded': after},
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+        )
+    except Exception:
+        pass  # audit failure must never block the operation
+    return _jsonify({
+        'message': 'Tag value cache flushed and re-seeded',
+        'cleared': before,
+        'reseeded': after,
+    }), 200
+
 
 # Start predictive engine
 try:
@@ -232,21 +462,18 @@ try:
     _pred_engine().start()
     logger.info("[OK] Predictive alarm engine started")
 except Exception as _e:
-    logger.warning("[WARN] Predictive engine failed to start: %s", _e)
-
-# RBAC Middleware
+    logger.warning("[WARN] Predictive engine failed to start: %s", _e)# RBAC Middleware
 @app.before_request
 def check_rbac_permissions():
     """
     Enforce RBAC permissions on protected endpoints
     """
-    # Log all incoming requests
-    logger.info(f"[HTTP] {request.method} {request.path} from {request.remote_addr}")
+    # Log all incoming requests — never log request body (may contain credentials)
+    logger.info("[HTTP] %s %s from %s", request.method, request.path, request.remote_addr)
     if request.headers.get('Authorization'):
         token_preview = request.headers.get('Authorization')[:30]
-        logger.info(f"[AUTH] Authorization header: {token_preview}...")
-    else:
-        logger.info(f"[WARN] No Authorization header")
+        logger.debug("[AUTH] Authorization header present: %s...", token_preview)
+    # (No else-branch logging — avoids noise for public/unauthenticated endpoints)
     
     # Skip RBAC check for auth endpoints and public endpoints
     public_endpoints = [
@@ -288,14 +515,160 @@ socketio = SocketIO(
 )
 
 # In-memory cache for latest tag values (performance optimization)
-# Note: This is now managed here but ideally belongs in a RealtimeService. 
-# Keeping it here for simplicity in this step.
 latest_tag_values = {}
 connected_clients = set()
+
+# ── REST Fallback Transport State (Fix #3) ────────────────────────────────────
+# Tracks MQTT/SignalR health and controls REST poller lifecycle.
+# All fields read/written only from the REST poller greenlet or MQTT callbacks
+# (gevent cooperative — no real threading race, but _rest_lock guards the few
+#  fields that MQTT callback and poller greenlet both touch).
+import threading as _threading
+_rest_lock = _threading.Lock()
+
+_transport_state = {
+    # Transport liveness (set by callbacks + poller)
+    "mqtt_alive":         False,   # True while MQTT is delivering messages
+    "signalr_alive":      False,   # True while SignalR is delivering messages
+    # Fix #4 — source arbitration
+    "active_source":      "NONE",  # "MQTT" | "SIGNALR" | "REST" | "NONE"
+    "mqtt_stable_since":  None,    # monotonic time MQTT first became alive (for hysteresis)
+    "signalr_stable_since": None,  # monotonic time SignalR first became alive (for hysteresis)
+    # Fallback control
+    "fallback_active":    False,   # True when REST polling is running
+    "grace_start":        None,    # monotonic time when grace period began
+    "grace_cancelled":    False,   # True if MQTT/SignalR recovered during grace
+    # REST poller internals
+    "rest_inflight":      False,   # single-flight guard
+    "rest_backoff_s":     1.0,     # current backoff interval
+    "rest_consecutive_ok": 0,      # successes since last error
+    "rest_last_error":    None,    # last error string
+    # Metrics for health endpoint / debugging
+    "last_mqtt_msg_at":   None,    # monotonic time of last MQTT message
+    "last_signalr_msg_at":None,
+    "last_rest_ok_at":    None,
+    "rest_poll_count":    0,
+    "rest_error_count":   0,
+}
+
+_REST_GRACE_S          = 30      # seconds before REST activates after transport loss
+_REST_POLL_INTERVAL_S  = 1.0    # target interval between REST polls
+_REST_TIMEOUT_S        = 4.0    # per-request timeout (< poll interval to avoid pileup)
+_REST_BACKOFF_STEPS    = [1, 2, 4, 8, 30]  # backoff ladder (seconds)
+_REST_BACKOFF_JITTER   = 1.5    # max uniform jitter added to each backoff step
+_REST_STABLE_SUCCESSES = 3      # consecutive successes needed to reset backoff
+_PROMOTE_STABLE_S      = 5      # Fix #4: seconds a transport must be alive before promotion
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _update_active_source():
+    """
+    Fix #4 — Source Arbitration (MUST be called under _rest_lock).
+    Priority: MQTT > SIGNALR > REST > NONE
+    Hysteresis: a transport must deliver messages for _PROMOTE_STABLE_S
+    consecutive seconds before it is promoted to active_source.
+    This prevents rapid MQTT ↔ REST oscillation on flapping connections.
+    Logs every source transition for field debugging.
+    """
+    now = time.monotonic()
+    ts  = _transport_state
+
+    # ── Update per-transport stability timers ──────────────────────────────────
+    if ts["mqtt_alive"]:
+        if ts["mqtt_stable_since"] is None:
+            ts["mqtt_stable_since"] = now
+    else:
+        ts["mqtt_stable_since"] = None
+
+    if ts["signalr_alive"]:
+        if ts["signalr_stable_since"] is None:
+            ts["signalr_stable_since"] = now
+    else:
+        ts["signalr_stable_since"] = None
+
+    # ── Determine candidate source (with hysteresis) ───────────────────────────
+    mqtt_stable    = (ts["mqtt_stable_since"] is not None
+                      and (now - ts["mqtt_stable_since"]) >= _PROMOTE_STABLE_S)
+    signalr_stable = (ts["signalr_stable_since"] is not None
+                      and (now - ts["signalr_stable_since"]) >= _PROMOTE_STABLE_S)
+
+    if mqtt_stable:
+        new_source = "MQTT"
+    elif signalr_stable:
+        new_source = "SIGNALR"
+    elif ts["fallback_active"]:
+        new_source = "REST"
+    else:
+        new_source = "NONE"
+
+    # ── Log and apply transition ───────────────────────────────────────────────
+    old_source = ts["active_source"]
+    if new_source != old_source:
+        ts["active_source"] = new_source
+        mqtt_age = (round(now - ts["last_mqtt_msg_at"], 1)
+                    if ts["last_mqtt_msg_at"] else None)
+        sig_age  = (round(now - ts["last_signalr_msg_at"], 1)
+                    if ts["last_signalr_msg_at"] else None)
+        logger.info(
+            "[TRANSPORT] ACTIVE SOURCE: %s → %s  "
+            "(mqtt_age=%ss  signalr_age=%ss  stable_window=%ds)",
+            old_source, new_source, mqtt_age, sig_age, _PROMOTE_STABLE_S
+        )
 
 # ── Per-SID session store: maps socket SID → allowed (plant, area) set or None(=admin)
 # Populated on connect, cleaned on disconnect.  None means no filtering (admin).
 _sid_sessions: dict = {}   # { sid: {"user_id": int, "is_admin": bool, "allowed": set|None} }
+
+
+def _seed_tag_cache_from_db():
+    """Seed latest_tag_values from the DB on startup so cards are populated
+    immediately on the first Socket.IO connect, even after a Flask restart."""
+    global latest_tag_values
+    try:
+        with db_pool.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (tag_id)
+                        tag_id,
+                        value_num,
+                        value_text,
+                        quality,
+                        sample_time AS "timestamp"
+                    FROM historian_raw.historian_timeseries
+                    WHERE sample_time >= NOW() - INTERVAL '1 hour'
+                    ORDER BY tag_id, sample_time DESC
+                """)
+                rows = cur.fetchall()
+        for row in rows:
+            if isinstance(row, dict):
+                tag_id = row.get('tag_id')
+                ts = row.get('timestamp')
+            else:
+                tag_id, value_num, value_text, quality, ts = row[0], row[1], row[2], row[3], row[4]
+            if not tag_id:
+                continue
+            ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+            if isinstance(row, dict):
+                latest_tag_values[tag_id] = {
+                    'tag_id': tag_id,
+                    'value_num': row.get('value_num'),
+                    'value_text': row.get('value_text'),
+                    'quality': row.get('quality', 'G'),
+                    'timestamp': ts_str,
+                    'source': 'DB_SEED',
+                }
+            else:
+                latest_tag_values[tag_id] = {
+                    'tag_id': tag_id,
+                    'value_num': value_num,
+                    'value_text': value_text,
+                    'quality': quality or 'G',
+                    'timestamp': ts_str,
+                    'source': 'DB_SEED',
+                }
+        logger.info("[STARTUP] Seeded latest_tag_values with %d tags from DB", len(latest_tag_values))
+    except Exception as exc:
+        logger.warning("[STARTUP] Could not seed tag cache from DB (non-fatal): %s", exc)
 
 
 def _get_user_allowed_areas(user_id: int, is_admin: bool):
@@ -335,6 +708,50 @@ except Exception:
 def now_ist_iso():
     """Return current IST timestamp in ISO 8601 format with timezone offset."""
     return datetime.now(IST_TZ).isoformat()
+
+
+def _compute_age_ms(ts_str) -> int | None:
+    """
+    Fix #5 — Cache Age/Freshness.
+    Compute how many milliseconds ago a tag value was timestamped.
+    Returns None if timestamp is unparseable.
+    The result is included in every tag value dict as 'age_ms' so the UI
+    can display a stale-data warning when age_ms exceeds a threshold.
+    """
+    if not ts_str:
+        return None
+    try:
+        dt = _parse_sample_time(ts_str)
+        now_utc = datetime.now(timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=IST_TZ)
+        delta_ms = int((now_utc - dt.astimezone(timezone.utc)).total_seconds() * 1000)
+        return max(0, delta_ms)   # clamp: never return negative age
+    except Exception:
+        return None
+
+
+# Fix #5 — stale policy thresholds
+_STALE_THRESHOLD_MS = 5_000    # > 5s  → quality overridden to 'STALE'
+_MAX_AGE_MS         = 30_000   # > 30s → quality overridden to 'EXPIRED' (Last Good Value still served)
+
+def _apply_stale_policy(entry: dict) -> dict:
+    """
+    Fix #5 — Last Good Value stale policy.
+    Overrides 'quality' in-place based on age_ms:
+      age_ms > _MAX_AGE_MS         → 'EXPIRED'  (value shown as --- on UI)
+      age_ms > _STALE_THRESHOLD_MS → 'STALE'    (value shown greyed-out)
+      otherwise                    → quality unchanged (Good/G/Bad/B from source)
+    Always returns the same dict for chaining.
+    """
+    age = entry.get('age_ms')
+    if age is None:
+        return entry
+    if age > _MAX_AGE_MS:
+        entry['quality'] = 'EXPIRED'
+    elif age > _STALE_THRESHOLD_MS:
+        entry['quality'] = 'STALE'
+    return entry
 
 
 def _parse_sample_time(raw_time):
@@ -481,14 +898,19 @@ def on_mqtt_message(topic, filtered_tags, raw_data):
     """
     Callback when MQTT message received with filtered tags
     Sends live data to frontend via WebSocket
-    
-    Args:
-        topic: MQTT topic name
-        filtered_tags: List of tags filtered for this topic's PLC
-        raw_data: Raw MQTT payload (includes alarm_summary if alarms present)
     """
     global latest_tag_values
-    
+
+    # ── Fix #3 + #4: stamp MQTT liveness and re-arbitrate source ──
+    with _rest_lock:
+        _transport_state["last_mqtt_msg_at"] = time.monotonic()
+        if not _transport_state["mqtt_alive"]:
+            _transport_state["mqtt_alive"] = True
+            _transport_state["grace_cancelled"] = True   # cancel any running grace timer
+            if _transport_state["fallback_active"]:
+                logger.info("[TRANSPORT] MQTT recovered → REST fallback will deactivate")
+        _update_active_source()
+
     try:
         message_ts = now_ist_iso()
         logger.info(
@@ -636,17 +1058,19 @@ def on_mqtt_message(topic, filtered_tags, raw_data):
                 elif quality == 'Bad':
                     quality = 'B'
                 
-                latest_tag_values[tag_id] = {
+                ts_val = tag.get('time') or now_ist_iso()
+                latest_tag_values[tag_id] = _apply_stale_policy({
                     'tag_id': tag_id,
                     'value_num': tag.get('value_num'),
                     'value_text': tag.get('value_text'),
                     'value_bool': tag.get('value_bool'),
                     'quality': quality,
-                    'timestamp': tag.get('time') or now_ist_iso(),
+                    'timestamp': ts_val,
                     'source': 'MQTT',
                     'topic': topic,
-                    'plcId': tag.get('plcId')
-                }
+                    'plcId': tag.get('plcId'),
+                    'age_ms': _compute_age_ms(ts_val),
+                })
         
         # ── Per-SID filtered broadcast (area-access enforcement) ──────
         # Build tag_id → (plant, area) from tag_cache once per batch
@@ -702,13 +1126,21 @@ def on_mqtt_message(topic, filtered_tags, raw_data):
 
 def on_signalr_tag_update(tags_data):
     """
-    Callback when SignalR receives BATCHED tag updates from listener
-    SignalR listener buffers individual tags and sends in batches (200ms window)
-    
-    PERFORMANCE: Processes 60+ tags per batch instead of 60+ individual callbacks
+    Callback when SignalR receives BATCHED tag updates from listener.
     """
     global latest_tag_values
-    
+
+    # ── Fix #3 + #4: stamp SignalR liveness and re-arbitrate source ──
+    with _rest_lock:
+        _transport_state["last_signalr_msg_at"] = time.monotonic()
+        if not _transport_state["signalr_alive"]:
+            _transport_state["signalr_alive"] = True
+            _transport_state["grace_cancelled"] = True
+            if _transport_state["fallback_active"]:
+                logger.info("[TRANSPORT] SignalR recovered → REST fallback will deactivate")
+        _update_active_source()
+        current_source = _transport_state["active_source"]
+
     try:
         if not isinstance(tags_data, list):
             logger.warning(f"[WARN] Expected list, got {type(tags_data)}")
@@ -717,18 +1149,27 @@ def on_signalr_tag_update(tags_data):
         if len(tags_data) == 0:
             return
         
-        # Update cache efficiently (single pass)
+        # Fix #4: only write to cache if MQTT is not the active source.
+        # MQTT has higher priority — never let SignalR overwrite fresher MQTT values.
         updated_count = 0
-        for tag in tags_data:
-            if isinstance(tag, dict):
-                tag_id = tag.get('itemID') or tag.get('itemId')
-                if tag_id:
-                    latest_tag_values[tag_id] = {
-                        'value': tag.get('value'),
-                        'quality': tag.get('quality'),
-                        'timestamp': tag.get('timestamp') or now_ist_iso()
-                    }
-                    updated_count += 1
+        if current_source != "MQTT":
+            for tag in tags_data:
+                if isinstance(tag, dict):
+                    tag_id = tag.get('itemID') or tag.get('itemId')
+                    if tag_id:
+                        ts_val = tag.get('timestamp') or now_ist_iso()
+                        latest_tag_values[tag_id] = _apply_stale_policy({
+                            'value': tag.get('value'),
+                            'quality': tag.get('quality'),
+                            'timestamp': ts_val,
+                            'source': 'SIGNALR',
+                            'age_ms': _compute_age_ms(ts_val),
+                        })
+                        updated_count += 1
+        else:
+            # MQTT is active — count tags for logging but skip cache write
+            updated_count = sum(1 for t in tags_data
+                                if isinstance(t, dict) and (t.get('itemID') or t.get('itemId')))
         
         # ── Per-SID filtered broadcast (area-access enforcement) ──────
         # Build tag_id → (plant, area) from tag_cache once per batch
@@ -815,7 +1256,10 @@ def handle_connect(auth):
                     for t in container.tag_cache.get_all_tags()}
         filtered = [
             v for tid, v in latest_tag_values.items()
-            if tag_meta.get(tid, (None, None)) in allowed
+            # Tags with no plant/area (e.g. PLC/OPC tags) are visible to all
+            # authenticated users — same rule as the MQTT broadcast in on_mqtt_message.
+            if tag_meta.get(tid, (None, None)) == (None, None)
+            or tag_meta.get(tid, (None, None)) in allowed
         ]
         if filtered:
             emit('tag_update', filtered)
@@ -847,6 +1291,184 @@ def _heartbeat_emitter():
             logger.warning(f"[HEARTBEAT] Emit failed: {_he}")
 
 
+# ── Step 4 — Dispatcher Metrics Persistence ──────────────────────────────────
+# Two write modes in one greenlet:
+#   SNAPSHOT    — every 60s regardless of change (trend/p95 queries)
+#   STATE_CHANGE — immediately when state string changes
+#   REJECTION   — immediately when rejectedCount increases
+#   TIMEOUT     — immediately when timeoutCount increases
+#
+# Table: historian_analytics.dispatcher_metrics
+# DDL:   HMI/migrations/dispatcher_metrics_table.sql  (run once manually)
+# ─────────────────────────────────────────────────────────────────────────────
+_DISP_POLL_S   = 5.0    # how often we read the backend (lightweight)
+_DISP_SNAP_S   = 60.0   # how often we force a SNAPSHOT row
+
+
+def _fetch_dispatcher_snap() -> dict | None:
+    """Pull /api/health/dispatcher from C# backend. Returns normalised dict or None."""
+    try:
+        import requests as _req
+        cfg      = container.config.get('csharp_backend', {})
+        url      = f"http://{cfg.get('host', 'localhost')}:{cfg.get('port', 5001)}/api/health/dispatcher"
+        resp     = _req.get(url, timeout=3)
+        if resp.status_code == 200:
+            raw = resp.json()
+            # normalise keys to lowercase
+            return {k.lower(): v for k, v in raw.items()}
+    except Exception:
+        pass
+    return None
+
+
+def _persist_dispatcher_row(snap: dict, event_type: str) -> None:
+    """Insert one row into historian_analytics.dispatcher_metrics."""
+    try:
+        with db_pool.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO historian_analytics.dispatcher_metrics (
+                        recorded_at, event_type,
+                        thread_id, apartment,
+                        queue_depth, max_queue_depth,
+                        rejected_count, ops_processed, timeout_count,
+                        state, state_reason, last_state_change_utc,
+                        last_success, last_heartbeat, last_error
+                    ) VALUES (
+                        NOW(), %s,
+                        %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s
+                    )
+                """, (
+                    event_type,
+                    snap.get('threadid'),
+                    snap.get('apartment'),
+                    snap.get('queuedepth'),
+                    snap.get('maxqueuedepth'),
+                    snap.get('rejectedcount'),
+                    snap.get('operationsprocessed'),
+                    snap.get('timeoutcount'),
+                    snap.get('state'),
+                    snap.get('statereason'),
+                    snap.get('laststatechangeutc'),
+                    snap.get('lastsuccess'),
+                    snap.get('lastheartbeat'),
+                    snap.get('lasterror'),
+                ))
+                conn.commit()
+    except Exception as _e:
+        logger.warning("[DISP_METRICS] DB write failed (%s): %s", event_type, _e)
+
+
+def _dispatcher_metrics_persister():
+    """Gevent greenlet — polls dispatcher health and persists to PostgreSQL.
+    Writes a SNAPSHOT row every 60s plus event-based rows on significant changes.
+    Silently skips if backend is unreachable or table doesn't exist yet.
+    """
+    import gevent as _gevent
+    logger.info("[DISP_METRICS] Persistence greenlet started (poll=%ds, snap=%ds)",
+                int(_DISP_POLL_S), int(_DISP_SNAP_S))
+
+    last_snap_at     = 0.0
+    last_state       = None
+    last_rejected    = None
+    last_timeout     = None
+
+    while True:
+        _gevent.sleep(_DISP_POLL_S)
+        snap = _fetch_dispatcher_snap()
+        if snap is None:
+            continue
+
+        now           = _time.time()
+        cur_state     = snap.get('state')
+        cur_rejected  = snap.get('rejectedcount', 0)
+        cur_timeout   = snap.get('timeoutcount',  0)
+
+        # ── event-based rows ─────────────────────────────────────────────────
+        if last_state is not None and cur_state != last_state:
+            _persist_dispatcher_row(snap, 'STATE_CHANGE')
+            logger.info("[DISP_METRICS] STATE_CHANGE %s -> %s", last_state, cur_state)
+
+        elif last_rejected is not None and cur_rejected > last_rejected:
+            _persist_dispatcher_row(snap, 'REJECTION')
+            logger.warning("[DISP_METRICS] REJECTION delta=%d total=%d",
+                           cur_rejected - last_rejected, cur_rejected)
+
+        elif last_timeout is not None and cur_timeout > last_timeout:
+            _persist_dispatcher_row(snap, 'TIMEOUT')
+            logger.warning("[DISP_METRICS] TIMEOUT delta=%d total=%d",
+                           cur_timeout - last_timeout, cur_timeout)
+
+        # ── periodic snapshot ─────────────────────────────────────────────────
+        elif (now - last_snap_at) >= _DISP_SNAP_S:
+            _persist_dispatcher_row(snap, 'SNAPSHOT')
+            last_snap_at = now
+
+        last_state    = cur_state
+        last_rejected = cur_rejected
+        last_timeout  = cur_timeout
+
+
+@app.route('/api/metrics/dispatcher/history', methods=['GET'])
+def api_dispatcher_metrics_history():
+    """Query persisted dispatcher metrics.
+    Query params:
+      hours      — lookback window in hours (default: 24, max: 168)
+      limit      — max rows returned (default: 200, max: 1000)
+      state      — filter by state string (optional, e.g. 'Degraded')
+      event_type — filter by event type (optional, e.g. 'STATE_CHANGE')
+    """
+    from flask import jsonify as _jsonify, request as _req
+    try:
+        hours      = min(int(_req.args.get('hours',      24)),  168)
+        limit      = min(int(_req.args.get('limit',     200)), 1000)
+        state_f    = _req.args.get('state')
+        event_f    = _req.args.get('event_type')
+    except ValueError:
+        return _jsonify({'error': 'invalid query parameter'}), 400
+
+    filters = ["recorded_at >= NOW() - INTERVAL '%s hours'"]
+    params  = [hours]
+    if state_f:
+        filters.append("state = %s")
+        params.append(state_f)
+    if event_f:
+        filters.append("event_type = %s")
+        params.append(event_f)
+    where = ' AND '.join(filters)
+
+    try:
+        with db_pool.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                    SELECT
+                        id, recorded_at, event_type,
+                        thread_id, apartment,
+                        queue_depth, max_queue_depth,
+                        rejected_count, ops_processed, timeout_count,
+                        state, state_reason, last_state_change_utc,
+                        last_success, last_heartbeat, last_error
+                    FROM historian_analytics.dispatcher_metrics
+                    WHERE {where}
+                    ORDER BY recorded_at DESC
+                    LIMIT %s
+                """, params + [limit])
+                cols = [d[0] for d in cur.description]
+                rows = [
+                    {c: (v.isoformat() if hasattr(v, 'isoformat') else v)
+                     for c, v in zip(cols, row)}
+                    for row in cur.fetchall()
+                ]
+        return _jsonify({'count': len(rows), 'hours': hours, 'rows': rows}), 200
+    except Exception as _e:
+        logger.error("[DISP_METRICS] Query failed: %s", _e)
+        return _jsonify({'error': 'query failed', 'detail': str(_e)}), 500
+
+
 @socketio.on('subscribe_tags')
 def handle_subscribe(data):
     """
@@ -862,6 +1484,236 @@ def handle_subscribe(data):
     else:
         logger.warning("[WARN] SignalR not connected, cannot subscribe")
         emit('subscribe_error', {'message': 'SignalR not connected'})
+
+
+def _rest_fallback_poller():
+    """
+    Fix #3 — REST Fallback Poller (gevent greenlet)
+    ================================================
+    Lifecycle:
+      1. Continuously monitors MQTT/SignalR liveness (message age > 10s = dead).
+      2. On transport loss: starts 30s grace period.
+         - If MQTT/SignalR recovers within grace → cancel, never activate REST.
+      3. After grace expires: activates REST polling at 1s intervals.
+         - Single-flight guard: skips tick if previous request still in-flight.
+         - Per-request timeout: 4s (prevents stale inflight blocking next cycle).
+         - Exponential backoff + jitter on errors: 1→2→4→8→30s cap.
+         - Backoff resets after _REST_STABLE_SUCCESSES consecutive successes.
+      4. On MQTT/SignalR recovery: deactivates REST, resets state, logs transition.
+    """
+    import gevent as _gevent
+    try:
+        import requests as _requests
+    except ImportError:
+        logger.error("[REST_FALLBACK] 'requests' not installed — REST fallback disabled")
+        return
+
+    cfg = container.config.get('csharp_backend', {})
+    base_url = f"http://{cfg.get('host', 'localhost')}:{cfg.get('port', 5001)}"
+    opc_values_url = f"{base_url}/api/opc/values"
+    plc_values_url = f"{base_url}/api/plc/values"   # S1-7: Add PLC REST fallback
+
+    # How long without a message before we consider a transport dead
+    _LIVENESS_TIMEOUT_S = 10.0
+
+    logger.info("[REST_FALLBACK] Poller greenlet started (grace=%ds, poll=%.1fs, timeout=%.1fs)",
+                _REST_GRACE_S, _REST_POLL_INTERVAL_S, _REST_TIMEOUT_S)
+
+    while True:
+        _gevent.sleep(_REST_POLL_INTERVAL_S)
+        now = time.monotonic()
+
+        # ── 1. Determine transport liveness ──────────────────────────────────
+        with _rest_lock:
+            last_mqtt = _transport_state["last_mqtt_msg_at"]
+            last_sig  = _transport_state["last_signalr_msg_at"]
+
+        mqtt_ok = last_mqtt is not None and (now - last_mqtt) < _LIVENESS_TIMEOUT_S
+        sig_ok  = last_sig  is not None and (now - last_sig)  < _LIVENESS_TIMEOUT_S
+        live_transport = mqtt_ok or sig_ok
+
+        with _rest_lock:
+            prev_mqtt = _transport_state["mqtt_alive"]
+            prev_sig  = _transport_state["signalr_alive"]
+            _transport_state["mqtt_alive"]    = mqtt_ok
+            _transport_state["signalr_alive"] = sig_ok
+            _update_active_source()   # Fix #4: re-compute active_source every tick
+
+        # Log transitions
+        if prev_mqtt and not mqtt_ok:
+            logger.warning("[TRANSPORT] MQTT LOST (no message >%.0fs) → starting %ds grace",
+                           _LIVENESS_TIMEOUT_S, _REST_GRACE_S)
+        if prev_sig and not sig_ok and sig_ok is not None:
+            logger.warning("[TRANSPORT] SignalR LOST → starting %ds grace", _REST_GRACE_S)
+
+        # ── 2. If a live transport exists: ensure REST is OFF ─────────────────
+        if live_transport:
+            with _rest_lock:
+                if _transport_state["fallback_active"]:
+                    _transport_state["fallback_active"] = False
+                    _transport_state["grace_start"]     = None
+                    _transport_state["grace_cancelled"] = False
+                    _transport_state["rest_backoff_s"]  = _REST_BACKOFF_STEPS[0]
+                    _transport_state["rest_consecutive_ok"] = 0
+                    logger.info("[TRANSPORT] Live transport restored → REST fallback DEACTIVATED")
+                else:
+                    # Still healthy: clear any stale grace timer
+                    _transport_state["grace_start"]     = None
+                    _transport_state["grace_cancelled"] = False
+            continue
+
+        # ── 3. No live transport — manage grace period ────────────────────────
+        with _rest_lock:
+            grace_start    = _transport_state["grace_start"]
+            grace_cancelled = _transport_state["grace_cancelled"]
+            fallback_active = _transport_state["fallback_active"]
+
+            if grace_cancelled:
+                # Transport recovered during grace — reset
+                _transport_state["grace_start"]      = None
+                _transport_state["grace_cancelled"]  = False
+                _transport_state["fallback_active"]  = False
+                logger.info("[TRANSPORT] Grace cancelled — transport recovered, REST stays off")
+                continue
+
+            if grace_start is None:
+                # Start grace timer
+                _transport_state["grace_start"] = now
+                logger.warning("[TRANSPORT] All transports dead → REST grace period started (%ds)",
+                               _REST_GRACE_S)
+                continue
+
+            grace_elapsed = now - grace_start
+            if grace_elapsed < _REST_GRACE_S:
+                # Still inside grace — serve cached values, log every 5s
+                if int(grace_elapsed) % 5 == 0:
+                    logger.info("[TRANSPORT] Grace %.0f/%ds — serving cached values",
+                                grace_elapsed, _REST_GRACE_S)
+                continue
+
+            # Grace expired: activate REST fallback
+            if not fallback_active:
+                _transport_state["fallback_active"] = True
+                logger.warning("[TRANSPORT] Grace expired → REST fallback ACTIVATED")
+
+        # ── 4. REST polling (fallback_active=True) ────────────────────────────
+        with _rest_lock:
+            if _transport_state["rest_inflight"]:
+                logger.debug("[REST_FALLBACK] Previous request still in-flight — skipping tick")
+                continue
+            backoff_s = _transport_state["rest_backoff_s"]
+
+        # Respect backoff: if backoff > poll interval, sleep the remainder
+        # (the greenlet already slept _REST_POLL_INTERVAL_S at top of loop)
+        if backoff_s > _REST_POLL_INTERVAL_S:
+            extra = backoff_s - _REST_POLL_INTERVAL_S
+            jitter = random.uniform(0, _REST_BACKOFF_JITTER)
+            logger.info("[REST_FALLBACK] Backoff %.1fs+jitter%.1fs before next poll",
+                        extra, jitter)
+            _gevent.sleep(extra + jitter)
+
+        with _rest_lock:
+            _transport_state["rest_inflight"] = True
+            _transport_state["rest_poll_count"] += 1
+
+        try:
+            # S1-7: Poll both OPC and PLC endpoints
+            opc_resp = _requests.get(opc_values_url, timeout=_REST_TIMEOUT_S)
+            opc_resp.raise_for_status()
+            opc_body = opc_resp.json()
+            opc_tags = opc_body if isinstance(opc_body, list) else opc_body.get("tags", [])
+            
+            # Poll PLC values (new in S1-7)
+            plc_tags = []
+            try:
+                plc_resp = _requests.get(plc_values_url, timeout=_REST_TIMEOUT_S)
+                plc_resp.raise_for_status()
+                plc_body = plc_resp.json()
+                # PLC endpoint returns {"success": true, "values": [...]}
+                plc_tags = plc_body.get("values", []) if isinstance(plc_body, dict) else plc_body
+            except Exception as plc_err:
+                # Don't fail entire poll if PLC unavailable
+                logger.debug("[REST_FALLBACK] PLC poll failed (non-fatal): %s", str(plc_err)[:80])
+            
+            # Combine OPC + PLC tags
+            tags_raw = opc_tags + plc_tags
+
+            if not tags_raw:
+                raise ValueError("REST response contained 0 tags (OPC + PLC)")
+
+            # Fix #4: only write to cache when REST is the active source.
+            # If MQTT or SignalR recovered and became stable during this in-flight
+            # request, discard the REST payload to avoid overwriting fresher data.
+            with _rest_lock:
+                can_write = _transport_state["active_source"] == "REST"
+
+            updated = 0
+            if can_write:
+                for t in tags_raw:
+                    # S1-7: Handle both OPC (tagId) and PLC (tagName/address) formats
+                    tag_id = (t.get("tagId") or t.get("tag_id") or t.get("id") or 
+                              t.get("tagName") or t.get("address"))
+                    if not tag_id:
+                        continue
+                    
+                    # S1-7: Use computedQuality if available (from S1-3/S1-4)
+                    quality = t.get("computedQuality") or t.get("quality", "G")
+                    age_ms = t.get("age_ms", 0)
+                    
+                    latest_tag_values[tag_id] = _apply_stale_policy({
+                        "tag_id":     tag_id,
+                        "value_num":  t.get("value"),
+                        "value_text": str(t.get("value", "")),
+                        "value_bool": None,
+                        "quality":    quality,
+                        "timestamp":  t.get("timestamp") or t.get("lastUpdate") or t.get("cachedAt") or now_ist_iso(),
+                        "source":     "REST_FALLBACK",
+                        "age_ms":     age_ms or _compute_age_ms(t.get("timestamp") or t.get("lastUpdate")),
+                    })
+                    updated += 1
+            else:
+                logger.debug("[REST_FALLBACK] Discarding REST payload — active_source is no longer REST")
+
+            # Emit snapshot to all connected clients
+            if updated > 0 and connected_clients:
+                socketio.emit('tag_update', list(latest_tag_values.values()), namespace='/')
+
+            with _rest_lock:
+                _transport_state["rest_consecutive_ok"] += 1
+                _transport_state["last_rest_ok_at"] = time.monotonic()
+                _transport_state["rest_last_error"]  = None
+                ok_count = _transport_state["rest_consecutive_ok"]
+                if ok_count >= _REST_STABLE_SUCCESSES:
+                    if _transport_state["rest_backoff_s"] != _REST_BACKOFF_STEPS[0]:
+                        logger.info("[REST_FALLBACK] %d consecutive successes → backoff reset",
+                                    ok_count)
+                    _transport_state["rest_backoff_s"]      = _REST_BACKOFF_STEPS[0]
+                    _transport_state["rest_consecutive_ok"] = 0
+
+            logger.debug("[REST_FALLBACK] Polled OK — %d tags updated (OPC + PLC)", updated)
+
+        except Exception as exc:
+            err_str = str(exc)[:120]
+            with _rest_lock:
+                _transport_state["rest_consecutive_ok"] = 0
+                _transport_state["rest_error_count"]   += 1
+                _transport_state["rest_last_error"]     = err_str
+                # Advance backoff
+                current_b = _transport_state["rest_backoff_s"]
+                idx = min(
+                    len(_REST_BACKOFF_STEPS) - 1,
+                    _REST_BACKOFF_STEPS.index(current_b) + 1
+                    if current_b in _REST_BACKOFF_STEPS
+                    else len(_REST_BACKOFF_STEPS) - 1
+                )
+                _transport_state["rest_backoff_s"] = _REST_BACKOFF_STEPS[idx]
+                next_b = _transport_state["rest_backoff_s"]
+
+            logger.warning("[REST_FALLBACK] Poll error: %s → backoff %.1fs", err_str, next_b)
+
+        finally:
+            with _rest_lock:
+                _transport_state["rest_inflight"] = False
 
 
 def start_signalr_listener():
@@ -945,7 +1797,15 @@ def initialize_services():
         start_mqtt_client()
     except Exception as e:
         logger.warning(f"[WARN] MQTT client failed to start: {e}")
-    
+
+    # Fix #3: Start REST fallback poller greenlet
+    try:
+        import gevent as _gevent
+        _gevent.spawn(_rest_fallback_poller)
+        logger.info("[REST_FALLBACK] Poller greenlet spawned (grace=%ds)", _REST_GRACE_S)
+    except Exception as e:
+        logger.warning("[WARN] REST fallback poller failed to start: %s", e)
+
     # Determine mode
     mqtt_connected = container.mqtt_client and container.mqtt_client.is_connected
     signalr_connected = container.signalr_listener and container.signalr_listener.is_connected
@@ -1007,8 +1867,11 @@ if __name__ == '__main__':
 
     with app.app_context():
         initialize_services()
+
+    # Seed the in-memory tag cache from DB so cards populate immediately after restart
+    with app.app_context():
+        _seed_tag_cache_from_db()
     
-    # Cleanup on exit (graceful shutdown)
     import atexit
     def cleanup():
         try:
@@ -1029,6 +1892,15 @@ if __name__ == '__main__':
     import gevent as _gevent
     _gevent.spawn(_heartbeat_emitter)
     logger.info("[HEARTBEAT] Greenlet spawned")
+
+    # Step 4 — Start dispatcher metrics persistence greenlet
+    # Requires migration: HMI/migrations/dispatcher_metrics_table.sql (run once manually)
+    try:
+        _gevent.spawn(_dispatcher_metrics_persister)
+        logger.info("[DISP_METRICS] Persistence greenlet spawned (poll=%ds snap=%ds)",
+                    int(_DISP_POLL_S), int(_DISP_SNAP_S))
+    except Exception as _e:
+        logger.warning("[DISP_METRICS] Failed to spawn greenlet: %s", _e)
 
     # Start Flask-SocketIO server
     socketio.run(
