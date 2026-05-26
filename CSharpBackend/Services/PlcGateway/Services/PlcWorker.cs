@@ -142,13 +142,13 @@ public sealed class PlcWorker : IAsyncDisposable
                 return;
             }
 
-            _state = PlcWorkerState.Starting;
+            TransitionTo(PlcWorkerState.Starting, "StartAsync called");
             _startedAt = DateTime.UtcNow;
             
             // Start polling loop in dedicated task
             _pollingTask = Task.Run(() => PollingLoopAsync(_cts.Token));
             
-            _state = PlcWorkerState.Running;
+            TransitionTo(PlcWorkerState.Running, "Polling loop task started");
             
             _logger.LogInformation("[WORKER {WorkerId}] Started polling loop", WorkerId);
         }
@@ -171,7 +171,7 @@ public sealed class PlcWorker : IAsyncDisposable
                 return;
             }
 
-            _state = PlcWorkerState.Stopping;
+            TransitionTo(PlcWorkerState.Stopping, "StopAsync called");
             _logger.LogInformation("[WORKER {WorkerId}] Stopping...", WorkerId);
 
             // Signal cancellation
@@ -197,7 +197,7 @@ public sealed class PlcWorker : IAsyncDisposable
                 _logger.LogWarning(ex, "[WORKER {WorkerId}] Error during disconnect", WorkerId);
             }
 
-            _state = PlcWorkerState.Stopped;
+            TransitionTo(PlcWorkerState.Stopped, "Polling loop exited, driver disconnected");
             _logger.LogInformation("[WORKER {WorkerId}] Stopped", WorkerId);
         }
         finally
@@ -231,7 +231,7 @@ public sealed class PlcWorker : IAsyncDisposable
                     // connect attempt entirely — just wait until the next tick.
                     if (_workerBackoffSeconds > 0 && DateTime.UtcNow < _workerNextConnectAt)
                     {
-                        _state = PlcWorkerState.Disconnected;
+                        TransitionTo(PlcWorkerState.Disconnected, "In backoff period, waiting before retry");
                         var waitMs = (int)(_workerNextConnectAt - DateTime.UtcNow).TotalMilliseconds;
                         if (waitMs > 0)
                             await Task.Delay(Math.Min(waitMs, 5000), ct);  // wake up at most every 5 s
@@ -248,7 +248,7 @@ public sealed class PlcWorker : IAsyncDisposable
                         _plcOfflineLogged = true;
                     }
 
-                    _state = PlcWorkerState.Connecting;
+                    TransitionTo(PlcWorkerState.Connecting, "Driver not connected, attempting connection");
                     await ConnectWithRetryAsync(ct);
 
                     if (!_driver.IsConnected)
@@ -258,7 +258,7 @@ public sealed class PlcWorker : IAsyncDisposable
                             _workerBackoffSeconds == 0 ? 30 : _workerBackoffSeconds * 2,
                             120);
                         _workerNextConnectAt = DateTime.UtcNow.AddSeconds(_workerBackoffSeconds);
-                        _state = PlcWorkerState.Disconnected;
+                        TransitionTo(PlcWorkerState.Disconnected, $"Connection failed, backoff for {_workerBackoffSeconds}s");
                         continue;
                     }
 
@@ -268,7 +268,7 @@ public sealed class PlcWorker : IAsyncDisposable
                     _plcOfflineLogged     = false;
                     _logger.LogInformation(
                         "[WORKER] '{PlcId}' is back ONLINE — resuming normal polling.", PlcId);
-                    _state = PlcWorkerState.Running;
+                    TransitionTo(PlcWorkerState.Running, "PLC reconnected successfully");
                 }
 
                 // STEP 2: Determine which tags are DUE for this tick
@@ -463,6 +463,13 @@ public sealed class PlcWorker : IAsyncDisposable
         
         // Also mark shared pool as disconnected
         _sharedPool?.MarkPlcDisconnected(PlcId, error);
+        
+        // Transition to Faulted state after threshold
+        if (_consecutiveFailures >= 5 && _state != PlcWorkerState.Faulted)
+        {
+            TransitionTo(PlcWorkerState.Faulted, 
+                $"Too many consecutive failures ({_consecutiveFailures})");
+        }
     }
 
     private PlcTagQuality ConvertQuality(Interfaces.PlcQuality quality)
@@ -490,6 +497,76 @@ public sealed class PlcWorker : IAsyncDisposable
     /// Get specific tag value
     /// </summary>
     public PlcTagValue? GetValue(string address) => _pool.GetValue(address);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STATE MACHINE (OPC Gold Standard Pattern)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Validated state transition with logging
+    /// </summary>
+    private void TransitionTo(PlcWorkerState next, string reason)
+    {
+        if (!IsValidTransition(_state, next))
+        {
+            _logger.LogError(
+                "[WORKER {WorkerId}] Invalid state transition {From} → {To} — REJECTED: {Reason}",
+                WorkerId, _state, next, reason);
+            return;
+        }
+
+        var prev = _state;
+        _state = next;
+        
+        _logger.LogInformation(
+            "[WORKER {WorkerId}] State: {From} → {To} ({Reason})",
+            WorkerId, prev, next, reason);
+    }
+
+    /// <summary>
+    /// Validate state transition rules
+    /// </summary>
+    private bool IsValidTransition(PlcWorkerState from, PlcWorkerState to)
+    {
+        return (from, to) switch
+        {
+            // Created can only start
+            (PlcWorkerState.Created, PlcWorkerState.Starting) => true,
+            
+            // Starting can run or be stopped
+            (PlcWorkerState.Starting, PlcWorkerState.Running) => true,
+            (PlcWorkerState.Starting, PlcWorkerState.Stopped) => true,
+            
+            // Running can disconnect, stop, or fault
+            (PlcWorkerState.Running, PlcWorkerState.Connecting) => true,
+            (PlcWorkerState.Running, PlcWorkerState.Disconnected) => true,
+            (PlcWorkerState.Running, PlcWorkerState.Stopping) => true,
+            (PlcWorkerState.Running, PlcWorkerState.Faulted) => true,
+            
+            // Connecting outcomes
+            (PlcWorkerState.Connecting, PlcWorkerState.Running) => true,
+            (PlcWorkerState.Connecting, PlcWorkerState.Disconnected) => true,
+            (PlcWorkerState.Connecting, PlcWorkerState.Faulted) => true,
+            
+            // Disconnected can retry, stop, or fault
+            (PlcWorkerState.Disconnected, PlcWorkerState.Connecting) => true,
+            (PlcWorkerState.Disconnected, PlcWorkerState.Stopping) => true,
+            (PlcWorkerState.Disconnected, PlcWorkerState.Faulted) => true,
+            
+            // Faulted requires manual intervention (stop only)
+            (PlcWorkerState.Faulted, PlcWorkerState.Stopping) => true,
+            (PlcWorkerState.Faulted, PlcWorkerState.Connecting) => true,  // Allow retry from Faulted
+            
+            // Stopping always succeeds
+            (PlcWorkerState.Stopping, PlcWorkerState.Stopped) => true,
+            
+            // Stopped can restart
+            (PlcWorkerState.Stopped, PlcWorkerState.Starting) => true,
+            
+            // All other transitions invalid
+            _ => false
+        };
+    }
 
     /// <summary>
     /// Get worker status
