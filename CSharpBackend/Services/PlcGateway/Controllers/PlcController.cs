@@ -360,9 +360,9 @@ public class PlcController : ControllerBase
                 {
                     plcId = plcId,
                     name = hasSaved ? saved!.Name : plcId,
-                    protocol = hasSaved ? saved!.Protocol : (hasPool ? "Rockwell" : "Unknown"),
-                    ipAddress = hasSaved ? saved!.IpAddress : (hasPool ? "192.168.0.20" : ""),
-                    port = hasSaved ? saved!.Port : (hasPool ? 44818 : 0),
+                    protocol = hasRuntime ? runtime!.Protocol : (hasSaved ? saved!.Protocol : (hasPool ? "Rockwell" : "Unknown")),
+                    ipAddress = hasRuntime ? runtime!.IpAddress : (hasSaved ? saved!.IpAddress : (hasPool ? "192.168.0.20" : "")),
+                    port = hasRuntime ? runtime!.Port : (hasSaved ? saved!.Port : (hasPool ? 44818 : 0)),
                     isConnected = isConnected,
                     tagCount = tagCount,
                     lastPollTime = hasRuntime ? runtime!.LastPollTime : (hasPool ? pool!.LastUpdateTime : (DateTime?)null),
