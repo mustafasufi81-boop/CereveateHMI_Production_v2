@@ -82,8 +82,66 @@ Response:
 
 ---
 
+#### [S1-1a] ✅ Added Formal State Machine (25 minutes)
+**Status:** COMPLETE  
+**Commit:** `63296cd`
+
+**Problem:**
+- Inline state assignments (`_state = Running`) with no validation
+- `Faulted` enum defined but never triggered
+- `HandlePollFailure()` didn't escalate to `Faulted` state
+- No logging of state transitions
+- Invalid transitions silently accepted
+
+**Solution:**
+- Added `TransitionTo(state, reason)` method with validation
+- Added `IsValidTransition(from, to)` with complete rule set
+- Replaced 7 inline assignments with validated transitions
+- Added Faulted transition after 5 consecutive failures
+
+**Changes:**
+```csharp
+// BEFORE (inline, no validation):
+_state = PlcWorkerState.Running;
+
+// AFTER (validated with logging):
+TransitionTo(PlcWorkerState.Running, "First successful read");
+```
+
+**State Transition Rules Added:**
+- Created → Starting
+- Starting → Running, Stopped
+- Running → Connecting, Disconnected, Stopping, Faulted
+- Connecting → Running, Disconnected, Faulted
+- Disconnected → Connecting, Stopping, Faulted
+- Faulted → Stopping, Connecting (allow retry)
+- Stopping → Stopped
+- Stopped → Starting (restart)
+
+**Testing:**
+- ✅ Build successful
+- ✅ Backend running (port 5001)
+- ✅ No new compilation errors
+- ✅ PLC worker active and polling
+- ✅ State transitions logged clearly
+- ✅ Invalid transitions rejected (validation working)
+
+**Risk:** MEDIUM → VERIFIED
+- State management is critical control flow
+- Pattern proven in OPC gold standard
+- All transitions now validated
+- Logging makes debugging trivial
+
+**Observations:**
+- 85 lines added, 8 deleted (net +77 lines)
+- Pattern exactly matches OPC dispatcher
+- Faulted state now properly triggers
+- State transition logs will help diagnose issues
+
+---
+
 ### Tasks In Progress
-- None (ready for S1-1a)
+- None (ready for S1-2)
 
 ---
 
@@ -179,10 +237,10 @@ Response:
 ### Sprint 1 Progress Summary
 
 **Total Tasks:** 11 (S1-1a through S1-11, plus S1-13)  
-**Completed:** 1 (S1-13) ✅  
+**Completed:** 2 (S1-13, S1-1a) ✅  
 **In Progress:** 0  
-**Remaining:** 11  
-**Progress:** 8% (1/12 tasks)
+**Remaining:** 10  
+**Progress:** 17% (2/12 tasks)
 
 **Estimated Completion:**
 - At current pace: 3-4 hours total
@@ -220,7 +278,7 @@ Response:
 | Task | Status | Priority | Risk | Est. Time | Actual Time |
 |------|--------|----------|------|-----------|-------------|
 | S1-13 | ✅ Done | #1 | Low | 30 min | 30 min |
-| S1-1a | 📋 Next | #2 | Med | 20 min | - |
+| S1-1a | ✅ Done | #2 | Med | 20 min | 25 min |
 | S1-2 | 🔜 Queue | #3 | Med | 15 min | - |
 | S1-9 | 🔜 Queue | #4 | High | 10 min | - |
 | S1-14 | 🔜 Queue | #5 | Low | 5 min | - |
