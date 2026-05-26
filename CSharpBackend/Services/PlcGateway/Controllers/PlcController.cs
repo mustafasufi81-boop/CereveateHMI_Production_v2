@@ -400,6 +400,104 @@ public class PlcController : ControllerBase
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // S1-5: PLC DIAGNOSTICS ENDPOINT
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Get comprehensive diagnostic information for all PLCs
+    /// Includes watchdog metrics, circuit breaker status, and detailed worker state
+    /// </summary>
+    [HttpGet("diagnostics")]
+    public IActionResult GetDiagnostics()
+    {
+        try
+        {
+            var runtimeStatus = _gatewayManager.GetAllStatus();
+            
+            var diagnostics = runtimeStatus.Select(status => new
+            {
+                // Identity
+                workerId = status.WorkerId,
+                plcId = status.PlcId,
+                plcName = status.PlcName,
+                protocol = status.Protocol,
+                ipAddress = status.IpAddress,
+                port = status.Port,
+                
+                // State
+                state = status.State.ToString(),
+                isConnected = status.IsConnected,
+                startedAt = status.StartedAt,
+                uptime = status.StartedAt != DateTime.MinValue 
+                    ? (DateTime.UtcNow - status.StartedAt).TotalSeconds 
+                    : 0,
+                
+                // Performance
+                pollingIntervalMs = status.PollingIntervalMs,
+                lastPollTime = status.LastPollTime,
+                lastSuccessTime = status.LastSuccessTime,
+                lastFailureTime = status.LastFailureTime,
+                
+                // Counters
+                totalPolls = status.TotalPolls,
+                successfulPolls = status.SuccessfulPolls,
+                failedPolls = status.FailedPolls,
+                consecutiveFailures = status.ConsecutiveFailures,
+                successRate = status.TotalPolls > 0 
+                    ? (double)status.SuccessfulPolls / status.TotalPolls * 100 
+                    : 0,
+                
+                // Timing
+                averageReadTimeMs = status.AverageReadTimeMs,
+                lastReadTimeMs = status.LastReadTimeMs,
+                
+                // S1-10: Watchdog metrics
+                watchdog = new
+                {
+                    lastScanDurationMs = status.LastScanDurationMs,
+                    maxScanDurationMs = status.MaxScanDurationMs,
+                    scanDegradationCount = status.ScanDegradationCount,
+                    expectedMaxScanMs = status.PollingIntervalMs * 2,
+                    isDegraded = status.LastScanDurationMs > (status.PollingIntervalMs * 2)
+                },
+                
+                // Tag pool
+                tagCount = status.TagCount,
+                poolLastUpdate = status.PoolLastUpdate,
+                isPoolStale = status.IsPoolStale,
+                
+                // Error tracking
+                lastError = status.LastError,
+                
+                // Scan rate scheduler stats
+                scanRateStats = status.ScanRateStats != null ? new
+                {
+                    totalTags = status.ScanRateStats.TotalTags,
+                    totalScans = status.ScanRateStats.TotalScans,
+                    totalTransmitted = status.ScanRateStats.TotalTransmitted,
+                    bufferedCount = status.ScanRateStats.BufferedCount,
+                    bufferUtilization = status.ScanRateStats.BufferUtilizationPercent
+                } : null
+            }).ToList();
+            
+            return Ok(new
+            {
+                success = true,
+                timestamp = DateTime.UtcNow,
+                plcCount = diagnostics.Count,
+                connectedCount = diagnostics.Count(d => d.isConnected),
+                degradedCount = diagnostics.Count(d => d.watchdog.isDegraded),
+                diagnostics
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[PLC API] Error getting diagnostics");
+            return StatusCode(500, new { success = false, error = ex.Message });
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // PLC MANAGEMENT (Add/Remove/Restart)
     // ═══════════════════════════════════════════════════════════════════
 

@@ -83,6 +83,13 @@ public sealed class PlcWorker : IAsyncDisposable
     private DateTime _cooldownUntil = DateTime.MinValue;  // cooldown period end time
     private const int MinCooldownSeconds = 300;       // 5 minutes
     private const int MaxCooldownSeconds = 3600;      // 60 minutes
+    
+    // ── Watchdog timer (S1-10) ──────────────────────────────────────────────
+    // Tracks scan duration to detect performance degradation
+    private DateTime _lastScanStartTime = DateTime.MinValue;
+    private long _lastScanDurationMs = 0;
+    private long _maxScanDurationMs = 0;
+    private int _scanDegradationCount = 0;            // consecutive slow scans
 
     public PlcWorker(
         string plcId,
@@ -308,6 +315,9 @@ public sealed class PlcWorker : IAsyncDisposable
                 _lastPollTime = DateTime.UtcNow;
                 _totalPolls++;
                 
+                // S1-10: Watchdog - Record scan start time
+                _lastScanStartTime = DateTime.UtcNow;
+                
                 PlcReadResult readResult;
                 List<string>? tagsDue = null;
                 
@@ -423,6 +433,27 @@ public sealed class PlcWorker : IAsyncDisposable
                     _consecutiveFailures = 0;
                     _totalReadTimeMs += readResult.ReadDurationMs;
                     _lastReadTimeMs = readResult.ReadDurationMs;  // Raw value for dashboard
+                    
+                    // S1-10: Watchdog - Check scan duration
+                    _lastScanDurationMs = (long)(DateTime.UtcNow - _lastScanStartTime).TotalMilliseconds;
+                    if (_lastScanDurationMs > _maxScanDurationMs)
+                        _maxScanDurationMs = _lastScanDurationMs;
+                    
+                    // Warn if scan duration exceeds 2x expected interval
+                    var expectedMaxMs = _config.PollingIntervalMs * 2;
+                    if (_lastScanDurationMs > expectedMaxMs)
+                    {
+                        _scanDegradationCount++;
+                        _logger.LogWarning(
+                            "[WATCHDOG {WorkerId}] Scan #{Poll} took {Actual}ms (expected <{Expected}ms) — degradation count: {Count}",
+                            WorkerId, _totalPolls, _lastScanDurationMs, expectedMaxMs, _scanDegradationCount);
+                    }
+                    else
+                    {
+                        // Reset degradation counter on good scan
+                        if (_scanDegradationCount > 0)
+                            _scanDegradationCount = 0;
+                    }
                     _lastError = null;
 
                     _logger.LogDebug(
@@ -663,6 +694,9 @@ public sealed class PlcWorker : IAsyncDisposable
             IsPoolStale = _pool.IsStale,
             LastError = _lastError,
             PollingIntervalMs = _config.PollingIntervalMs,
+            LastScanDurationMs = _lastScanDurationMs,       // S1-10
+            MaxScanDurationMs = _maxScanDurationMs,         // S1-10
+            ScanDegradationCount = _scanDegradationCount,   // S1-10
             ScanRateStats = _scheduler?.GetStats()
         };
     }
@@ -743,6 +777,11 @@ public class PlcWorkerStatus
     public bool IsPoolStale { get; set; }
     public string? LastError { get; set; }
     public int PollingIntervalMs { get; set; }
+    
+    // S1-10: Watchdog metrics
+    public long LastScanDurationMs { get; set; }      // Duration of most recent scan cycle
+    public long MaxScanDurationMs { get; set; }       // Worst scan duration since start
+    public int ScanDegradationCount { get; set; }     // Consecutive slow scans (>2x expected)
     
     // Scan Rate Scheduler Statistics
     public ScanSchedulerStats? ScanRateStats { get; set; }
