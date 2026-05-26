@@ -72,6 +72,8 @@ public class PlcController : ControllerBase
                     value = v.Value,
                     dataType = v.DataType,
                     quality = v.Quality.ToString(),
+                    computedQuality = v.ComputedQuality.ToString(),  // S1-4: Include computed quality (Stale if > 10s)
+                    age_ms = v.age_ms,                               // S1-3: Include age in milliseconds
                     timestamp = v.Timestamp,
                     cachedAt = v.CachedAt
                 })
@@ -119,6 +121,8 @@ public class PlcController : ControllerBase
                     value = v.Value,
                     dataType = v.DataType,
                     quality = v.Quality.ToString(),
+                    computedQuality = v.ComputedQuality.ToString(),  // S1-4: Include computed quality
+                    age_ms = v.age_ms,                               // S1-3: Include age in milliseconds
                     timestamp = v.Timestamp
                 })
             });

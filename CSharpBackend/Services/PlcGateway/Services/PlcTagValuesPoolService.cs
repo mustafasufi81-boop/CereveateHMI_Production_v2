@@ -333,6 +333,35 @@ public record PlcTagValueCacheEntry
     public DateTime Timestamp { get; init; }         // PLC timestamp
     public DateTime CachedAt { get; init; }          // Cache update time
     public string? EngineeringUnit { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // S1-3: age_ms COMPUTATION
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Age of cached value in milliseconds (computed on access)
+    /// </summary>
+    public long age_ms => (long)(DateTime.UtcNow - CachedAt).TotalMilliseconds;
+    
+    /// <summary>
+    /// Computed quality (upgrades to Stale if age > 10 seconds)
+    /// S1-4: If tag is Good but older than 10s, mark as Stale
+    /// </summary>
+    public PlcTagQuality ComputedQuality
+    {
+        get
+        {
+            // If already Bad/CommError/Uncertain, keep original quality
+            if (Quality != PlcTagQuality.Good)
+                return Quality;
+            
+            // S1-4: If Good but age > 10 seconds, mark as Stale
+            if (age_ms > 10_000)
+                return PlcTagQuality.Stale;
+            
+            return Quality;
+        }
+    }
 }
 
 /// <summary>
@@ -344,7 +373,8 @@ public enum PlcTagQuality
     Bad,
     Uncertain,
     CommError,
-    NotConfigured
+    NotConfigured,
+    Stale              // Added S1-4: Tag older than 10 seconds
 }
 
 /// <summary>
