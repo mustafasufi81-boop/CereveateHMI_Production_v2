@@ -69,13 +69,20 @@ public sealed class PlcWorker : IAsyncDisposable
     private bool _disposed;
 
     // ── PLC-offline backoff ────────────────────────────────────────────────
-    // Tracks whether we’ve already logged the “PLC offline” warning so we
-    // don’t repeat it every second.  Also tracks the backoff window so we
-    // don’t call ConnectAsync (and initialize 128 × 2-second timeout tags)
+    // Tracks whether we've already logged the "PLC offline" warning so we
+    // don't repeat it every second.  Also tracks the backoff window so we
+    // don't call ConnectAsync (and initialize 128 × 2-second timeout tags)
     // every polling tick when the PLC is known unreachable.
     private bool _plcOfflineLogged = false;          // have we emitted the offline notice?
     private int  _workerBackoffSeconds = 0;           // current wait (0 = first attempt)
     private DateTime _workerNextConnectAt = DateTime.MinValue;
+    
+    // ── Circuit breaker (S1-2) ─────────────────────────────────────────────
+    // Prevents infinite reconnect storms with exponential cooldown
+    private int _faultCount = 0;                      // number of times entered Faulted state
+    private DateTime _cooldownUntil = DateTime.MinValue;  // cooldown period end time
+    private const int MinCooldownSeconds = 300;       // 5 minutes
+    private const int MaxCooldownSeconds = 3600;      // 60 minutes
 
     public PlcWorker(
         string plcId,
@@ -226,8 +233,23 @@ public sealed class PlcWorker : IAsyncDisposable
                 // STEP 1: Ensure connected
                 if (!_driver.IsConnected)
                 {
+                    // ── S1-2: Circuit breaker cooldown check ────────────────────
+                    // If in cooldown period (after Faulted state), wait before retry
+                    if (DateTime.UtcNow < _cooldownUntil)
+                    {
+                        if (_consecutiveFailures == 5) // Log only once
+                        {
+                            var remaining = (_cooldownUntil - DateTime.UtcNow).TotalSeconds;
+                            _logger.LogWarning(
+                                "[WORKER {WorkerId}] In circuit breaker cooldown, {Remaining:F0}s remaining",
+                                WorkerId, remaining);
+                        }
+                        await Task.Delay(5000, ct); // Check every 5s
+                        continue;
+                    }
+                    
                     // ── Backoff guard ────────────────────────────────────────────
-                    // If we’re still inside the backoff window, skip the
+                    // If we're still inside the backoff window, skip the
                     // connect attempt entirely — just wait until the next tick.
                     if (_workerBackoffSeconds > 0 && DateTime.UtcNow < _workerNextConnectAt)
                     {
@@ -266,6 +288,17 @@ public sealed class PlcWorker : IAsyncDisposable
                     _workerBackoffSeconds = 0;
                     _workerNextConnectAt  = DateTime.MinValue;
                     _plcOfflineLogged     = false;
+                    
+                    // S1-2: Reset circuit breaker on successful recovery
+                    if (_faultCount > 0)
+                    {
+                        _logger.LogInformation(
+                            "[WORKER {WorkerId}] Recovered from fault state, resetting circuit breaker",
+                            WorkerId);
+                        _faultCount = 0;
+                        _cooldownUntil = DateTime.MinValue;
+                    }
+                    
                     _logger.LogInformation(
                         "[WORKER] '{PlcId}' is back ONLINE — resuming normal polling.", PlcId);
                     TransitionTo(PlcWorkerState.Running, "PLC reconnected successfully");
@@ -294,14 +327,35 @@ public sealed class PlcWorker : IAsyncDisposable
                     _logger.LogDebug("[WORKER {WorkerId}] Poll #{Poll}: {DueCount} tags due for scan", 
                         WorkerId, _totalPolls, tagsDue.Count);
                     
-                    // BATCH READ only the due tags - efficient PLC communication
-                    readResult = await _driver.ReadTagsAsync(tagsDue);
+                    // S1-9: BATCH READ with hard timeout wrapper
+                    // Protects against native DLL hangs that bypass per-tag timeouts
+                    var readTask = _driver.ReadTagsAsync(tagsDue);
+                    var hardTimeout = TimeSpan.FromMilliseconds(_config.ReadTimeoutMs * 2); // 2x tag timeout
+                    
+                    if (await Task.WhenAny(readTask, Task.Delay(hardTimeout)) != readTask)
+                    {
+                        throw new TimeoutException(
+                            $"Driver ReadTagsAsync exceeded hard timeout ({hardTimeout.TotalSeconds}s)");
+                    }
+                    
+                    readResult = await readTask;
                 }
                 else
                 {
                     // Fallback: No scheduler, read all tags (legacy behavior)
                     _logger.LogDebug("[WORKER {WorkerId}] ReadAllTagsAsync Poll #{Poll}", WorkerId, _totalPolls);
-                    readResult = await _driver.ReadAllTagsAsync();
+                    
+                    // S1-9: Read with hard timeout wrapper
+                    var readTask = _driver.ReadAllTagsAsync();
+                    var hardTimeout = TimeSpan.FromMilliseconds(_config.ReadTimeoutMs * 2);
+                    
+                    if (await Task.WhenAny(readTask, Task.Delay(hardTimeout)) != readTask)
+                    {
+                        throw new TimeoutException(
+                            $"Driver ReadAllTagsAsync exceeded hard timeout ({hardTimeout.TotalSeconds}s)");
+                    }
+                    
+                    readResult = await readTask;
                 }
                 
                 _logger.LogDebug("[WORKER {WorkerId}] Read complete: Success={Success}, Count={Count}, Duration={Ms}ms", 
@@ -436,6 +490,9 @@ public sealed class PlcWorker : IAsyncDisposable
                     "[WORKER {WorkerId}] Connection attempt {Attempt} failed",
                     WorkerId, attempt);
             }
+            
+            // S1-14: Increment consecutiveFailures on connection failure
+            _consecutiveFailures++;
 
             if (attempt < _config.MaxConnectRetries)
             {
@@ -467,8 +524,15 @@ public sealed class PlcWorker : IAsyncDisposable
         // Transition to Faulted state after threshold
         if (_consecutiveFailures >= 5 && _state != PlcWorkerState.Faulted)
         {
+            // S1-2: Circuit breaker - apply exponential cooldown
+            _faultCount++;
+            var cooldownSeconds = Math.Min(
+                MinCooldownSeconds * (int)Math.Pow(2, _faultCount - 1),
+                MaxCooldownSeconds);
+            _cooldownUntil = DateTime.UtcNow.AddSeconds(cooldownSeconds);
+            
             TransitionTo(PlcWorkerState.Faulted, 
-                $"Too many consecutive failures ({_consecutiveFailures})");
+                $"Too many consecutive failures ({_consecutiveFailures}), cooldown for {cooldownSeconds}s");
         }
     }
 
