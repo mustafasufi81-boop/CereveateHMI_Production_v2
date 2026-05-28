@@ -139,10 +139,19 @@ public class OpcAutoConnectService : BackgroundService
             _logger.LogInformation("Auto-connect: attempting OPC connection to {ProgId} on {Host} using CLSID {Clsid}", progId, maskedHost, clsid);
         }
 
+        _logger.LogInformation(
+            "[OPC AUTO-CONNECT] TryConnectAsync | Thread={ThreadId} | Apartment={Apartment}",
+            Thread.CurrentThread.ManagedThreadId,
+            Thread.CurrentThread.GetApartmentState());
+
         try
         {
-            await Task.Run(() => _opcDaService.Connect(progId, host, clsid), stoppingToken);
-            _logger.LogInformation("Auto-connect: OPC server connected successfully");
+            // OpcDaService.Connect() routes through OpcStaDispatcher which owns a permanent
+            // STA thread. COM objects are created on that thread and it stays alive for the
+            // process lifetime — no orphaned apartment, no silent AddItems failures.
+            _opcDaService.Connect(progId, host, clsid);
+            _logger.LogInformation(
+                "[OPC AUTO-CONNECT] Connect() returned OK — dispatcher thread owns COM objects");
             return true;
         }
         catch (OperationCanceledException)

@@ -41,7 +41,7 @@ public class OpcDaHub : Hub
         _configuration = configuration;
         _configService = loggingConfigService;
         
-        Console.WriteLine("[HUB] OpcDaHub instance created");
+        _logger.LogInformation("OpcDaHub instance created");
         
         // CRITICAL FIX: Subscribe using async lambda to avoid async void pattern
         _opcDaService.TagValuesUpdated += async (s, e) => await OnTagValuesUpdatedAsync(s, e);
@@ -52,8 +52,7 @@ public class OpcDaHub : Hub
         // CRITICAL FIX: Clean up any stale subscriptions from previous connections
         _clientSubscriptions.TryRemove(Context.ConnectionId, out _);
         
-        Console.WriteLine($"[HUB] Client connected: {Context.ConnectionId}");
-        _logger.LogInformation($"SignalR client connected: {Context.ConnectionId}");
+        _logger.LogInformation("Client connected: {ConnectionId}", Context.ConnectionId);
         return base.OnConnectedAsync();
     }
     
@@ -61,8 +60,8 @@ public class OpcDaHub : Hub
     {
         // HIGH-PERFORMANCE: Cleanup client subscriptions on disconnect
         _clientSubscriptions.TryRemove(Context.ConnectionId, out var removedTags);
-        Console.WriteLine($"[HUB] Client disconnected: {Context.ConnectionId}, removed {removedTags?.Count ?? 0} subscriptions");
-        _logger.LogInformation($"SignalR client disconnected: {Context.ConnectionId}");
+        _logger.LogInformation("Client disconnected: {ConnectionId}, removed {SubscriptionCount} subscriptions",
+            Context.ConnectionId, removedTags?.Count ?? 0);
         await base.OnDisconnectedAsync(exception);
     }
     
@@ -182,6 +181,12 @@ public class OpcDaHub : Hub
     {
         try
         {
+            _logger.LogInformation(
+                "[OPC HUB] ConnectToServer (SignalR path) | server={ProgID} | Thread={ThreadId} | Apartment={Apartment}",
+                serverProgID,
+                Thread.CurrentThread.ManagedThreadId,
+                Thread.CurrentThread.GetApartmentState());
+
             // Disconnect from any existing servers first
             _opcDaService.Disconnect();
             
@@ -217,7 +222,8 @@ public class OpcDaHub : Hub
     {
         try
         {
-            Console.WriteLine($"[HUB] ConnectToRemoteServer called - ProgID: {serverProgID}, Host: {hostname}, CLSID: {clsid}");
+            _logger.LogInformation("ConnectToRemoteServer called - ProgID: {ProgID}, Host: {Host}, CLSID: {Clsid}",
+                serverProgID, hostname, clsid);
             
             // Internal CLSID mapping for known servers
             var clsidMapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -230,15 +236,14 @@ public class OpcDaHub : Hub
                 ? clsidMapping[serverProgID] 
                 : clsid;
 
-            Console.WriteLine($"[HUB] Using CLSID: {actualClsid}");
-            _logger.LogInformation($"Connecting to remote server - ProgID: {serverProgID}, Host: {hostname}, CLSID: {(string.IsNullOrWhiteSpace(actualClsid) ? "None" : actualClsid)}");
+            _logger.LogInformation("Using CLSID: {Clsid}", actualClsid);
             
             // Disconnect from any existing servers first
             _opcDaService.Disconnect();
             
-            Console.WriteLine($"[HUB] Calling _opcDaService.Connect...");
+            _logger.LogDebug("Calling _opcDaService.Connect");
             _opcDaService.Connect(serverProgID, hostname, actualClsid);
-            Console.WriteLine($"[HUB] Connect successful!");
+            _logger.LogInformation("Remote connection successful: {ProgID}@{Host}", serverProgID, hostname);
             
             _loggingConfigService.SetServerConnection(serverProgID, hostname, actualClsid);
             
@@ -247,13 +252,10 @@ public class OpcDaHub : Hub
                 : $"{serverProgID} @ {hostname} (via CLSID)";
                 
             await Clients.All.SendAsync("ServerConnected", connectionInfo);
-            _logger.LogInformation($"Connected to remote server: {connectionInfo}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[HUB ERROR] ConnectToRemoteServer failed: {ex.Message}");
-            Console.WriteLine($"[HUB ERROR] Stack: {ex.StackTrace}");
-            _logger.LogError(ex, $"Error connecting to {serverProgID} on {hostname}");
+            _logger.LogError(ex, "ConnectToRemoteServer failed for {ProgID}@{Host}", serverProgID, hostname);
             throw new HubException($"Failed to connect to remote server: {ex.Message}");
         }
     }
@@ -277,17 +279,14 @@ public class OpcDaHub : Hub
     {
         try
         {
-            Console.WriteLine("[HUB] BrowseTags called");
+            _logger.LogDebug("BrowseTags called");
             var tags = _opcDaService.BrowseTags();
-            Console.WriteLine($"[HUB] BrowseTags returned {tags.Count} tags");
-            _logger.LogInformation($"Browsed {tags.Count} tags");
+            _logger.LogInformation("BrowseTags returned {TagCount} tags", tags.Count);
             return Task.FromResult(tags);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[HUB ERROR] BrowseTags failed: {ex.Message}");
-            Console.WriteLine($"[HUB ERROR] Stack: {ex.StackTrace}");
-            _logger.LogError(ex, "Error browsing tags");
+            _logger.LogError(ex, "BrowseTags failed");
             throw new HubException($"Failed to browse tags: {ex.Message}");
         }
     }

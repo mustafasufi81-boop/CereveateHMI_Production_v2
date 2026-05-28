@@ -90,6 +90,11 @@ public sealed class PlcWorker : IAsyncDisposable
     private long _lastScanDurationMs = 0;
     private long _maxScanDurationMs = 0;
     private int _scanDegradationCount = 0;            // consecutive slow scans
+    
+    // ── Scan sequence tracking (S2-6a) ───────────────────────────────────────
+    // Increments on each scan cycle, allows UI to detect partial/mixed-cycle data
+    // Mirrors OPC _sequenceId pattern for consistency
+    private long _sequenceId = 0;                     // scan sequence counter
 
     public PlcWorker(
         string plcId,
@@ -374,6 +379,10 @@ public sealed class PlcWorker : IAsyncDisposable
                 // STEP 3: Process results - update pools and sample buffer
                 if (readResult.Success && readResult.Values.Count > 0)
                 {
+                    // S2-6a: Increment scan sequence ID (thread-safe)
+                    // All cache entries from this scan will have the same SequenceId
+                    long currentSequenceId = Interlocked.Increment(ref _sequenceId);
+                    
                     // Local pool gets read values (for diagnostics)
                     _pool.Update(readResult.Values, readResult.ReadDurationMs);
                     
@@ -401,16 +410,17 @@ public sealed class PlcWorker : IAsyncDisposable
                         
                         _sampleBuffer.AddSamples(samples);
                         
-                        // LOG: Confirm PLC read with sample values
+                        // LOG: Confirm PLC read with sample values (S2-6a: include sequence)
                         var firstTag = samples.FirstOrDefault();
                         if (firstTag != null)
                         {
-                            _logger.LogWarning("[PLC READ] {Time} | {Count} tags | First: {Tag}={Value}",
-                                DateTime.Now.ToString("HH:mm:ss.fff"), samples.Count, firstTag.TagName, firstTag.Value);
+                            _logger.LogWarning("[PLC READ] {Time} | Seq:{Seq} | {Count} tags | First: {Tag}={Value}",
+                                DateTime.Now.ToString("HH:mm:ss.fff"), currentSequenceId, samples.Count, firstTag.TagName, firstTag.Value);
                         }
                     }
                     
                     // SHARED POOL: Update with latest values (for API/HMI that want just current value)
+                    // S2-6a: Include SequenceId in cache entries
                     if (_sharedPool != null)
                     {
                         var cacheEntries = readResult.Values.Select(v => new PlcTagValueCacheEntry
@@ -422,7 +432,8 @@ public sealed class PlcWorker : IAsyncDisposable
                             DataType = v.DataType,
                             Quality = ConvertQuality(v.Quality),
                             Timestamp = v.Timestamp,
-                            CachedAt = DateTime.UtcNow
+                            CachedAt = DateTime.UtcNow,
+                            SequenceId = currentSequenceId  // S2-6a: Scan sequence tracking
                         }).ToList();
                         
                         _sharedPool.UpdateFromPlc(PlcId, cacheEntries, DateTime.UtcNow);

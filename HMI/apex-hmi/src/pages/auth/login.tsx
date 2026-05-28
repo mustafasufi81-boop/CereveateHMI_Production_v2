@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -24,6 +24,8 @@ const formSchema = z.object({
 });
 
 const Login = () => {
+    // Random field names generated on every mount — defeats Chrome autofill matching
+    const fieldId = useRef(`f_${Math.random().toString(36).slice(2)}`);
     const { login } = useAuth();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -95,7 +97,9 @@ const Login = () => {
                 </CardHeader>
                 <CardContent>
                     <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                        {/* Hide search-input clear button (×) that Chrome renders on type=search */}
+                        <style>{`input[type=search]::-webkit-search-cancel-button,input[type=search]::-webkit-search-decoration{display:none}`}</style>
+                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" autoComplete="off">
                             <FormField
                                 control={form.control}
                                 name="username"
@@ -103,7 +107,24 @@ const Login = () => {
                                     <FormItem>
                                         <FormLabel>Username</FormLabel>
                                         <FormControl>
-                                            <Input placeholder="Enter your username" {...field} />
+                                            {/*
+                                              type="search" is the ONLY input type Chrome
+                                              categorically never autofills with saved contacts.
+                                              Random name/id on every mount defeats any fallback matching.
+                                            */}
+                                            <Input
+                                                type="search"
+                                                placeholder="Enter your username"
+                                                autoComplete="off"
+                                                name={fieldId.current + '_u'}
+                                                id={fieldId.current + '_u'}
+                                                data-lpignore="true"
+                                                data-form-type="other"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                ref={field.ref}
+                                            />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>
@@ -116,7 +137,19 @@ const Login = () => {
                                     <FormItem>
                                         <FormLabel>Password</FormLabel>
                                         <FormControl>
-                                            <Input type="password" placeholder="Enter your password" {...field} />
+                                            <Input
+                                                type="password"
+                                                placeholder="Enter your password"
+                                                autoComplete="new-password"
+                                                name={fieldId.current + '_p'}
+                                                id={fieldId.current + '_p'}
+                                                data-lpignore="true"
+                                                data-form-type="other"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                ref={field.ref}
+                                            />
                                         </FormControl>
                                         <FormMessage />
                                     </FormItem>

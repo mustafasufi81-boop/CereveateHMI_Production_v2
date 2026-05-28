@@ -1,0 +1,57 @@
+{
+  "run_id": "20260526_020711",
+  "timestamp": "2026-05-26T02:07:11.862005",
+  "suite": "Section H \u2014 COM Dispatcher Resilience",
+  "passed": 2,
+  "total": 2,
+  "results": [
+    {
+      "test_id": "H1 STA apartment",
+      "passed": true,
+      "message": "Concurrent: 10/10 ok | Dispatcher apartment='STA' thread=11 \u2705",
+      "detail": "Part A: concurrent stability proxy. Part B: /api/health/dispatcher apartment==STA",
+      "duration_s": 0.03,
+      "data": {
+        "errors": 0,
+        "tag_counts": [
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27
+        ],
+        "apartment": "STA",
+        "thread_id": 11,
+        "dispatcher_endpoint_code": 200
+      }
+    },
+    {
+      "test_id": "H9 OPC health fields",
+      "passed": true,
+      "message": "Status='Connected' TagsConnected=27 HealthScore=100 dispatcher_apt='STA' \u2705",
+      "detail": "OPC required=['status', 'tagsconnected', 'healthscore', 'lastupdate'] | Dispatcher required=['apartment', 'threadid', 'queuedepth', 'operationsprocessed', 'state'] present=['apartment', 'threadid', 'queuedepth', 'operationsprocessed', 'state'] missing=[]",
+      "duration_s": 0.03,
+      "data": {
+        "status": "Connected",
+        "tags_connected": 27,
+        "health_score": 100,
+        "required_missing": [],
+        "dispatcher_fields_present": [
+          "apartment",
+          "threadid",
+          "queuedepth",
+          "operationsprocessed",
+          "state"
+        ],
+        "dispatcher_fields_missing": [],
+        "dispatcher_apartment": "STA",
+        "dispatcher_endpoint_code": 200
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "run_id": "20260526_012544",
+  "timestamp": "2026-05-25T19:55:44.760039Z",
+  "mode": "full_soak30s_onlyF",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T19:55:44.761032Z",
+    "memory_rss_mb": 31.7,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T19:55:45.661592Z",
+    "memory_rss_mb": 35.0,
+    "thread_count": 5,
+    "handle_count": 258,
+    "delta_memory_rss_mb": 3.3,
+    "delta_thread_count": 1,
+    "delta_handle_count": 60
+  },
+  "sections": {
+    "F": {
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "F1 unknown tag",
+          "passed": true,
+          "message": "HTTP 404 \u2014 ok (not 500)"
+        },
+        {
+          "id": "F2 status concurrent",
+          "passed": true,
+          "message": "500_errors=0, success=100.0%"
+        },
+        {
+          "id": "F3 content-type",
+          "passed": true,
+          "message": "Content-Type: application/json; charset=utf-8"
+        },
+        {
+          "id": "F4 100 concurrent",
+          "passed": true,
+          "message": "success=100.0% (need \u226595%), p95=126.3ms"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "PASS",
+  "total_passed": 4,
+  "total_failed": 0,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

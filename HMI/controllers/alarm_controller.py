@@ -7,6 +7,7 @@ from utils.decorators import token_required
 import logging
 import sys
 import os
+import db_pool
 
 logger = logging.getLogger(__name__)
 
@@ -191,36 +192,16 @@ def get_active_alarms():
             LIMIT {limit}
         """
         
-        db_service = container.historical_service
-        if not db_service or not db_service.connection:
-            logger.warning("Database not available, returning empty alarms")
-            return jsonify({
-                'success': True,
-                'alarms': [],
-                'count': 0,
-                'message': 'Database not connected'
-            })
-        
         logger.info(f"Executing alarm query with limit={limit}")
-        
-        # Create cursor based on availability
-        if HAS_REAL_DICT_CURSOR and RealDictCursor:
-            try:
-                cursor = db_service.connection.cursor(cursor_factory=RealDictCursor)
-                use_dict_cursor = True
-                logger.debug("Using RealDictCursor")
-            except Exception as cursor_error:
-                logger.warning(f"RealDictCursor failed: {cursor_error}, using regular cursor")
-                cursor = db_service.connection.cursor()
-                use_dict_cursor = False
-        else:
-            cursor = db_service.connection.cursor()
-            use_dict_cursor = False
-            logger.debug("Using regular cursor")
-        
-        cursor.execute(query)  # No parameters needed, limit is in the query string
-        
-        rows = cursor.fetchall()
+        use_dict_cursor = HAS_REAL_DICT_CURSOR and RealDictCursor is not None
+        with db_pool.get_conn() as conn:
+            if use_dict_cursor:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+            else:
+                cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            cursor.close()
         logger.info(f"Query returned {len(rows)} rows, use_dict_cursor={use_dict_cursor}")
         
         alarms = []
@@ -280,8 +261,6 @@ def get_active_alarms():
                 logger.error(f"Error processing row {idx}: {row_error}, row type: {type(row)}, row: {row}")
                 continue
         
-        cursor.close()
-        
         logger.info(f"Retrieved {len(alarms)} active alarms")
         
         return jsonify({
@@ -291,14 +270,7 @@ def get_active_alarms():
         })
         
     except Exception as e:
-        # Rollback transaction on error to prevent "transaction aborted" state
-        try:
-            if db_service and db_service.connection:
-                db_service.connection.rollback()
-                logger.warning("Transaction rolled back after error")
-        except Exception as rollback_error:
-            logger.error(f"Failed to rollback transaction: {rollback_error}")
-        
+        # db_pool.get_conn() handles rollback automatically on exception
         import traceback
         error_trace = traceback.format_exc()
         logger.error(f"Error fetching alarms: {str(e)}")
@@ -356,30 +328,21 @@ def acknowledge_alarm(alarm_id):
         session_id = request.headers.get('X-Session-ID')
         client_ip  = request.remote_addr
 
-        db_service = container.historical_service
-        if not db_service or not db_service.connection:
-            return jsonify({'success': False, 'error': 'Database not available'}), 503
-
         # ── Read current state from alarm_active ────────────────────────────
-        if HAS_REAL_DICT_CURSOR and RealDictCursor:
-            try:
-                cursor = db_service.connection.cursor(cursor_factory=RealDictCursor)
-                use_dict = True
-            except Exception:
-                cursor = db_service.connection.cursor()
-                use_dict = False
-        else:
-            cursor = db_service.connection.cursor()
-            use_dict = False
-
-        cursor.execute("""
-            SELECT aa.alarm_key, aa.alarm_state, aa.tag_id,
-                   aa.priority, aa.raised_value, aa.setpoint_value
-            FROM historian_raw.alarm_active aa
-            WHERE aa.current_event_id = %s
-        """, (alarm_id,))
-        result = cursor.fetchone()
-        cursor.close()
+        use_dict = HAS_REAL_DICT_CURSOR and RealDictCursor is not None
+        with db_pool.get_conn() as conn:
+            if use_dict:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+            else:
+                cursor = conn.cursor()
+            cursor.execute("""
+                SELECT aa.alarm_key, aa.alarm_state, aa.tag_id,
+                       aa.priority, aa.raised_value, aa.setpoint_value
+                FROM historian_raw.alarm_active aa
+                WHERE aa.current_event_id = %s
+            """, (alarm_id,))
+            result = cursor.fetchone()
+            cursor.close()
 
         if not result:
             return jsonify({'success': False, 'error': 'Alarm not found'}), 404
@@ -467,6 +430,7 @@ def acknowledge_alarm(alarm_id):
         # ── Audit trail (Flask owns alarm_audit_trail) ───────────────────────
         if HAS_ALARM_AUDIT and AlarmAuditDAO:
             try:
+                db_service = container.historical_service
                 audit_dao = AlarmAuditDAO(db_service)
                 audit_dao.insert_audit_record(
                     event_id=alarm_id,
@@ -582,12 +546,6 @@ def clear_alarm(alarm_id):
             }), 500
         
         db_service = container.historical_service
-        if not db_service or not db_service.connection:
-            logger.error("Database not available")
-            return jsonify({
-                'success': False,
-                'error': 'Database not available'
-            }), 503
         
         # Get clearing information from request
         clear_reason = ''

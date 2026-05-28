@@ -170,11 +170,17 @@ const ForcePasswordSetup = () => {
                                     <Input
                                         placeholder={`Type security question ${index + 1}`}
                                         value={q.question}
+                                        autoComplete="off"
                                         onChange={e => updateQuestion(index, "question", e.target.value)}
                                     />
                                     <Input
+                                        type="password"
                                         placeholder="Your answer"
                                         value={q.answer}
+                                        autoComplete="new-password"
+                                        name="sq_ans_nofill"
+                                        data-lpignore="true"
+                                        data-form-type="other"
                                         onChange={e => updateQuestion(index, "answer", e.target.value)}
                                     />
                                 </div>

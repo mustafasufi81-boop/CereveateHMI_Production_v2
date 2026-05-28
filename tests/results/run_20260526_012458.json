@@ -1,0 +1,68 @@
+{
+  "run_id": "20260526_012458",
+  "timestamp": "2026-05-25T19:54:58.591316Z",
+  "mode": "full_soak30s_onlyE",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T19:54:58.592315Z",
+    "memory_rss_mb": 31.8,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T19:55:34.412924Z",
+    "memory_rss_mb": 34.7,
+    "thread_count": 7,
+    "handle_count": 236,
+    "delta_memory_rss_mb": 2.9,
+    "delta_thread_count": 3,
+    "delta_handle_count": 38
+  },
+  "sections": {
+    "E": {
+      "passed": 5,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "E1 all 27 tags",
+          "passed": true,
+          "message": "tagCount=27 (expected 27)"
+        },
+        {
+          "id": "E2 tag fields",
+          "passed": true,
+          "message": "has_id=True, has_value=True, has_timestamp=True"
+        },
+        {
+          "id": "E3 freshness 30s",
+          "passed": true,
+          "message": "median=1ms, max=2ms, stale_events=0"
+        },
+        {
+          "id": "E4 no empty responses",
+          "passed": true,
+          "message": "empty=0/200 in 0.64s rapid read"
+        },
+        {
+          "id": "E5 timestamp monotonicity",
+          "passed": true,
+          "message": "t0=2026-05-25T16:04:03.317  t5=2026-05-25T16:04:03.817  advanced \u2705"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "PASS",
+  "total_passed": 5,
+  "total_failed": 0,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

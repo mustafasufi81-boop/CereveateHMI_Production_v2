@@ -6,9 +6,9 @@
 ## Port Map
 
 | Port | Service |
-|------|---------|
-| 1883 | Mosquitto MQTT Broker |
-| 5001 | C# OPC Backend |
+|------|------|
+| 1883 | Mosquitto MQTT Broker (live broadcast only — no DB writes) |
+| 5001 | C# OPC/PLC Backend (historian DB writes owned here) |
 | 6001 | Flask HMI Backend |
 | 8090 | Nginx (React Frontend) |
 
@@ -54,24 +54,7 @@ netstat -ano | findstr ":5001"
 
 ---
 
-### Step 4 — MQTT Subscriber Service
-
-**First time only — create venv:**
-```cmd
-cd D:\CereveateHMI_Production\mqtt_subscriber_service
-python -m venv venv
-venv\Scripts\pip install -r requirements.txt
-```
-
-**Every time — start service:**
-```cmd
-cd D:\CereveateHMI_Production\mqtt_subscriber_service
-start "MQTT Subscriber" cmd /k "venv\Scripts\activate && set PYTHONPATH=%CD% && python src\service_main.py"
-```
-
----
-
-### Step 5 — Flask HMI Backend
+### Step 4 — Flask HMI Backend
 
 **First time only — install deps into .venv:**
 ```cmd
@@ -131,9 +114,10 @@ Output: `bin\Release\net8.0\publish\OpcDaWebBrowser.exe`
 | Port 5001 not listening | Check OpcDaWebBrowser window for errors; verify `appsettings.json` DB credentials |
 | Flask not starting | `cd HMI && .venv\Scripts\activate && python app.py` — read the console error |
 | Nginx port conflict | Another app on 8090 — `netstat -ano \| findstr ":8090"` then kill the PID |
-| MQTT subscriber crashing | `cd mqtt_subscriber_service && venv\Scripts\activate && python src\service_main.py` |
 | DB auth error | `appsettings.json` must have `Username=cereveate` `Password=cereveate@222` |
-| OPC not connecting | Verify Matrikon OPC server is registered via `dcomcnfg` |
+| OPC API returns 0 tags | 🅿️ PARKED — see `BUG_FIX_LOG.md`. Check `tag_master` has rows with `server_progid=Matrikon.OPC.Simulation.1` |
+| Dashboard cards blank for non-admin | Fixed — RBAC now passes `(None,None)` plant/area tags for all users (see `BUG_FIX_LOG.md` Problem 2) |
+| Alarm endpoint crashes | Fixed — `alarm_controller.py` uses `db_pool` + auto-reconnect property (see `BUG_FIX_LOG.md` Problem 1) |
 
 ---
 
@@ -141,15 +125,16 @@ Output: `bin\Release\net8.0\publish\OpcDaWebBrowser.exe`
 
 ```
 D:\CereveateHMI_Production\
-├── CSharpBackend\               ← .NET 8 OPC DA server (reads OPC tags, publishes to MQTT, writes to DB)
-├── HMI\                         ← Python Flask web app + Nginx frontend
-└── mqtt_subscriber_service\     ← Python MQTT subscriber (processes MQTT messages → DB)
+├── CSharpBackend\           ← .NET 8 backend: reads OPC/PLC tags, writes to DB, publishes to MQTT
+├── HMI\                     ← Python Flask web app + Nginx React frontend
+└── mqtt_subscriber_service\ ← ❌ DISABLED (was duplicate DB writer — C# already owns all writes)
 ```
 
 **Startup order:**
 ```
-1. PostgreSQL  →  2. Mosquitto  →  3. C# OPC Backend  →  4. MQTT Subscriber  →  5. Flask HMI + Nginx
+1. PostgreSQL  →  2. Mosquitto  →  3. C# OPC/PLC Backend  →  4. Flask HMI  →  5. Nginx
 ```
+> ⚠️ `mqtt_subscriber_service` is **permanently removed** — it was writing duplicate data to DB. C# owns all DB persistence.
 
 ---
 
@@ -226,27 +211,7 @@ netstat -ano | findstr ":5001"
 
 ---
 
-## Step 4 — Start MQTT Subscriber Service
-
-```cmd
-cd D:\CereveateHMI_Production\mqtt_subscriber_service
-run_service.bat
-```
-
-This script automatically:
-- Creates `venv\` if missing
-- Installs `requirements.txt`
-- Starts `src\service_main.py`
-
-To run in background:
-```cmd
-cd D:\CereveateHMI_Production\mqtt_subscriber_service
-start_service.bat
-```
-
----
-
-## Step 5 — Start Flask HMI + Nginx
+## Step 4 — Start Flask HMI + Nginx
 
 ```cmd
 cd D:\CereveateHMI_Production\HMI
@@ -303,15 +268,6 @@ python -m venv .venv
 pip install -r requirements-production.txt
 ```
 
-### MQTT Subscriber venv (if `venv\` is missing)
-The `run_service.bat` creates it automatically. Or manually:
-```cmd
-cd D:\CereveateHMI_Production\mqtt_subscriber_service
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
-
 ---
 
 ## Rebuild C# Backend (only if source code changed)
@@ -347,9 +303,10 @@ Output: `bin\Release\net8.0\publish\OpcDaWebBrowser.exe`
 | Problem | Fix |
 |---------|-----|
 | Port 5001 not listening | Check `OpcDaWebBrowser.exe` started; check `appsettings.json` DB credentials |
-| DB auth error for `postgres` user | `appsettings.json` must have `Username=cereveate`, not `postgres` |
+| DB auth error | `appsettings.json` must have `Username=cereveate`, not `postgres` |
 | Flask not starting | Run `.venv\Scripts\activate` then `python app.py` manually to see error |
 | Nginx fails | Check `HMI\nginx-1.28.0\logs\error.log` |
-| MQTT not connecting | Verify Mosquitto running on port 1883 |
-| OPC not connecting | Verify Matrikon OPC server COM registration via `dcomcnfg` |
-| MQTT subscriber errors | Run `run_service.bat` manually to see console output |
+| MQTT broker down | Verify Mosquitto running: `Get-Service mosquitto` |
+| OPC API returns 0 tags | 🅿️ PARKED — see `BUG_FIX_LOG.md` for investigation steps |
+| Dashboard blank for non-admin | ✅ Fixed — see `BUG_FIX_LOG.md` Problem 2 |
+| Alarm endpoint crashes | ✅ Fixed — see `BUG_FIX_LOG.md` Problem 1 |

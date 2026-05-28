@@ -1,0 +1,93 @@
+{
+  "run_id": "20260526_012222",
+  "timestamp": "2026-05-25T19:52:22.229936Z",
+  "mode": "full_soak30s_onlyA",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T19:52:22.231940Z",
+    "memory_rss_mb": 31.7,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T19:52:26.997353Z",
+    "memory_rss_mb": 32.9,
+    "thread_count": 5,
+    "handle_count": 219,
+    "delta_memory_rss_mb": 1.2,
+    "delta_thread_count": 1,
+    "delta_handle_count": 21
+  },
+  "sections": {
+    "A": {
+      "passed": 9,
+      "failed": 1,
+      "tests": [
+        {
+          "id": "A1 backend+OPC",
+          "passed": true,
+          "message": "HTTP 200, OPC=connected, tagCount=27"
+        },
+        {
+          "id": "A2 endpoint /status",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /values",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /servers",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /tags",
+          "passed": true,
+          "message": "HTTP 404 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /health",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /swagger",
+          "passed": false,
+          "message": "ERROR: HTTPConnectionPool(host='localhost', port=5001): Read timed out. (read timeout=3)"
+        },
+        {
+          "id": "A3 values shape",
+          "passed": true,
+          "message": "tagCount=27 (wrapped response)"
+        },
+        {
+          "id": "A4 status fields",
+          "passed": true,
+          "message": "connected=True, tagCount=True, serverName=True, lastUpdate=True"
+        },
+        {
+          "id": "A5 servers list",
+          "passed": true,
+          "message": "3 server(s) listed"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "FAIL",
+  "total_passed": 9,
+  "total_failed": 1,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

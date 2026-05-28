@@ -6,6 +6,7 @@ Filters tags based on plc_name/server_progid relationship
 
 import json
 import logging
+import random
 import threading
 import time
 from typing import Callable, Dict, List, Optional
@@ -51,10 +52,12 @@ class MQTTClientService:
         self.is_connected = False
         self.subscribed_topics: List[str] = []
         
-        # Reconnect limiting — stop after 3 failures (HMI works fine without MQTT)
+        # Reconnect state — exponential backoff forever, never permanently stops
         self._reconnect_attempts = 0
-        self._max_reconnect_attempts = 3
-        self._reconnect_stopped = False
+        self._reconnect_stopped = False   # kept for API compat but never set True permanently
+        self._reconnect_thread: Optional[threading.Thread] = None
+        # Backoff schedule: attempt 0→5s, 1→10s, 2→30s, 3+→60s, each +jitter(0..3s)
+        self._backoff_delays = [5, 10, 30, 60]
 
         # Threading
         self._lock = threading.RLock()
@@ -136,22 +139,43 @@ class MQTTClientService:
         self.is_connected = False
         if rc != 0:
             self._reconnect_attempts += 1
-            if self._reconnect_attempts >= self._max_reconnect_attempts:
-                # Stop the auto-reconnect loop — HMI works fine via REST API
-                self._reconnect_stopped = True
-                logger.warning(
-                    f"[MQTT] Disconnected {self._reconnect_attempts} times. "
-                    f"Stopping MQTT reconnect. HMI will use REST API for live data."
+            delay_base = self._backoff_delays[min(self._reconnect_attempts - 1, len(self._backoff_delays) - 1)]
+            delay = delay_base + random.uniform(0, 3)
+            logger.warning(
+                f"[MQTT] DEGRADED+RETRYING — unexpected disconnect (code: {rc}), "
+                f"attempt #{self._reconnect_attempts}, next retry in {delay:.1f}s"
+            )
+            # Spawn reconnect thread — never give up
+            if not (self._reconnect_thread and self._reconnect_thread.is_alive()):
+                self._reconnect_thread = threading.Thread(
+                    target=self._reconnect_with_backoff,
+                    args=(delay,),
+                    daemon=True
                 )
-                try:
-                    client.loop_stop()
-                    client.disconnect()
-                except Exception:
-                    pass
-            else:
-                logger.warning(f"[WARN] MQTT disconnected (code: {rc}), attempt {self._reconnect_attempts}/{self._max_reconnect_attempts}")
+                self._reconnect_thread.start()
         else:
-            logger.info("MQTT disconnected cleanly")
+            logger.info("[MQTT] Disconnected cleanly")
+
+    def _reconnect_with_backoff(self, initial_delay: float):
+        """Retry MQTT connection forever with exponential backoff + jitter"""
+        time.sleep(initial_delay)
+        attempt = self._reconnect_attempts
+        while True:
+            try:
+                logger.info(f"[MQTT] DEGRADED+RETRYING — reconnect attempt #{attempt}...")
+                self.client.reconnect()
+                logger.info("[MQTT] Reconnect succeeded — back to CONNECTED")
+                self._reconnect_attempts = 0
+                return
+            except Exception as e:
+                attempt += 1
+                delay_base = self._backoff_delays[min(attempt - 1, len(self._backoff_delays) - 1)]
+                delay = delay_base + random.uniform(0, 3)
+                logger.warning(
+                    f"[MQTT] DEGRADED+RETRYING — reconnect #{attempt} failed: {e}. "
+                    f"Next retry in {delay:.1f}s"
+                )
+                time.sleep(delay)
     
     def _on_message(self, client, userdata, msg):
         """

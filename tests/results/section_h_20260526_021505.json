@@ -1,0 +1,54 @@
+{
+  "run_id": "20260526_021505",
+  "timestamp": "2026-05-26T02:15:23.027732",
+  "suite": "Section H \u2014 COM Dispatcher Resilience",
+  "passed": 2,
+  "total": 2,
+  "results": [
+    {
+      "test_id": "H7 OPC restart recovery",
+      "passed": true,
+      "message": "tagCount=27 restored in 12s \u2705",
+      "detail": "OpcAutoConnectService must re-seed 27 tags after process restart",
+      "duration_s": 12.38,
+      "data": {
+        "recovery_s": 12.01600000000326,
+        "dispatcher_metrics": {
+          "samples": 5,
+          "unreachable": 1,
+          "queue_depth_min": 0,
+          "queue_depth_max": 0,
+          "queue_depth_final": 0,
+          "max_queue_depth_peak": 0,
+          "ops_delta": -504,
+          "timeout_delta": 0,
+          "states_seen": [
+            "Running"
+          ],
+          "apartment_final": "STA"
+        }
+      }
+    },
+    {
+      "test_id": "H8 dispatcher post-restart",
+      "passed": true,
+      "message": "OPC health: Status='Connected' TagsConnected=27 \u2705",
+      "detail": "Dispatcher STA thread must remain alive through OPC restart cycle",
+      "duration_s": 5.03,
+      "data": {
+        "opc_status": "Connected",
+        "tags_connected": 27,
+        "dispatcher_snapshot": {
+          "apartment": "STA",
+          "state": "Running",
+          "queue_depth": 0,
+          "max_queue_depth": 0,
+          "operations_processed": 34,
+          "timeout_count": 0,
+          "last_success": "2026-05-25T20:45:21.5252115Z",
+          "last_heartbeat": null
+        }
+      }
+    }
+  ]
+}

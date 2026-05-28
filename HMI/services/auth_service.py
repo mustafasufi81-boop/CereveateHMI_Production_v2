@@ -44,6 +44,8 @@ class AuthService:
         Returns: {'user_id': int, 'mfa_token': str}
         """
         try:
+            if not password or len(password) < 8:
+                raise ValueError("Password must be at least 8 characters")
             hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             
             # Generate 6-digit MFA Token (expires in 30 days)
@@ -263,7 +265,11 @@ class AuthService:
             return None
 
     def verify_mfa_token(self, user_id, code):
-        """Verify MFA using 6-digit backup key"""
+        """Verify MFA using 6-digit backup key.
+        Returns False if no key is set, if the key has expired, or if the code
+        does not match. There is no default/bypass code — every user must have a
+        valid, non-expired backup key to use this path.
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -279,23 +285,26 @@ class AuthService:
                     
                     backup_key_hash, backup_key_expiry = row
                     
-                    # Default to "123456" if no backup key is set
+                    # No backup key set — reject; admin must regenerate one
                     if not backup_key_hash:
-                        return code == "123456"
+                        logger.warning("[AUTH] MFA backup key not set for user_id=%s", user_id)
+                        return False
                     
-                    # Check if backup key has expired
+                    # Expired key — reject; user must contact admin to regenerate
                     if backup_key_expiry and datetime.now() > backup_key_expiry:
-                        # Allow default token if expired
-                        return code == "123456"
+                        logger.warning("[AUTH] MFA backup key expired for user_id=%s", user_id)
+                        return False
                     
-                    # Verify the backup key
+                    # Constant-time comparison via bcrypt
                     return bcrypt.checkpw(code.encode('utf-8'), backup_key_hash.encode('utf-8'))
         except Exception as e:
             logger.error(f"Verify MFA Token error: {e}")
             raise
 
     def get_current_totp(self, user_id):
-        """Get the current 6-digit MFA token info for a user"""
+        """Get the MFA backup key status (expiry info) for a user.
+        Never returns the actual key value — only its validity window.
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -310,13 +319,12 @@ class AuthService:
                     
                     backup_key_expiry = row[0]
                     
-                    # Check if token has expired
+                    # Expired — inform user to contact admin for a new key
                     if backup_key_expiry and datetime.now() > backup_key_expiry:
                         return {
-                            'code': '123456',
-                            'remaining': 0,
                             'expired': True,
-                            'message': 'Token expired. Using default: 123456'
+                            'remaining': 0,
+                            'message': 'MFA backup key has expired. Contact your administrator to regenerate a new key.'
                         }
                     
                     # Calculate remaining days
@@ -326,10 +334,9 @@ class AuthService:
                         remaining_days = 0
                     
                     return {
-                        'code': '******',  # Don't expose the actual token
-                        'remaining': remaining_days,
                         'expired': False,
-                        'message': f'Token valid for {remaining_days} more days'
+                        'remaining': remaining_days,
+                        'message': f'MFA backup key valid for {remaining_days} more day(s).'
                     }
         except Exception as e:
             logger.error(f"Get current MFA token info error: {e}")
@@ -363,8 +370,8 @@ class AuthService:
         """Called after admin reset: set new password + security questions, clear the flag.
         Returns a full JWT token."""
         try:
-            if not new_password or len(new_password) < 6:
-                raise ValueError("Password must be at least 6 characters")
+            if not new_password or len(new_password) < 8:
+                raise ValueError("Password must be at least 8 characters")
             hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
@@ -495,6 +502,8 @@ class AuthService:
     def reset_password(self, user_id, new_password):
         """Reset password for a user"""
         try:
+            if not new_password or len(new_password) < 8:
+                raise ValueError("Password must be at least 8 characters")
             hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             with self._get_conn() as conn:
                 with conn.cursor() as cur:

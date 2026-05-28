@@ -2,6 +2,7 @@ using Npgsql;
 using OpcDaWebBrowser.Services.AlarmEvaluation.Config;
 using OpcDaWebBrowser.Services.AlarmEvaluation.Models;
 using OpcDaWebBrowser.Services.HistorianIngest.Config;
+using PlcGateway.Services;
 using System.Collections.Concurrent;
 
 namespace OpcDaWebBrowser.Services.AlarmEvaluation.Services;
@@ -49,6 +50,12 @@ public sealed class AlarmStateManager
     private long _totalRtn;
     private long _totalCleared;
 
+    // Live tag value caches — used to block clear when process value is still out-of-range
+    // _tagPool    = OPC DA tags (TagValuesPoolService)
+    // _plcTagPool = PLC Modbus/CIP tags (PlcTagValuesPoolService)  — VYAN tags live here
+    private readonly TagValuesPoolService?    _tagPool;
+    private readonly PlcTagValuesPoolService? _plcTagPool;
+
     /// <summary>
     /// Fires after every successful state transition + DB write.
     /// Subscribers use this to publish MQTT notifications.
@@ -58,11 +65,15 @@ public sealed class AlarmStateManager
     public AlarmStateManager(
         HistorianConfig dbConfig,
         AlarmEvaluationConfig alarmConfig,
-        ILogger<AlarmStateManager> logger)
+        ILogger<AlarmStateManager> logger,
+        TagValuesPoolService?    tagPool    = null,
+        PlcTagValuesPoolService? plcTagPool = null)
     {
         _dbConfig    = dbConfig    ?? throw new ArgumentNullException(nameof(dbConfig));
         _alarmConfig = alarmConfig ?? throw new ArgumentNullException(nameof(alarmConfig));
         _logger      = logger      ?? throw new ArgumentNullException(nameof(logger));
+        _tagPool     = tagPool;
+        _plcTagPool  = plcTagPool;
     }
 
     // =========================================================
@@ -130,7 +141,8 @@ public sealed class AlarmStateManager
         double? setpointValue,
         int priority,
         DateTimeOffset timestamp,
-        CancellationToken ct)
+        CancellationToken ct,
+        TagSource source = TagSource.Unknown)   // which pool this tag lives in
     {
         var alarmKey = AlarmRuntimeState.BuildKey(tagId, level);
         var sem = GetOrCreateLock(alarmKey);
@@ -138,11 +150,37 @@ public sealed class AlarmStateManager
         await sem.WaitAsync(ct);
         try
         {
-            // Do not double-raise an already-active alarm
-            if (_states.TryGetValue(alarmKey, out var existing) &&
-                existing.State is AlarmState4.ActiveUnack or AlarmState4.ActiveAck)
+            // Do not double-raise an already-active alarm.
+            // Phase 1 Rule: Once an alarm is ACK'd, it MUST be cleared before a new
+            // occurrence can be raised. This prevents multiple ACK/CLEAR cycles on the
+            // same event_id and ensures proper alarm lifecycle: RAISE → ACK → CLEAR → RAISE.
+            if (_states.TryGetValue(alarmKey, out var existing))
             {
-                return false;
+                if (existing.State is AlarmState4.ActiveUnack)
+                    return false; // still unacknowledged — do not double-raise
+
+                if (existing.State is AlarmState4.ActiveAck)
+                {
+                    // CHANGED: Do not allow re-raise from ACK'd state.
+                    // Operator must CLEAR the alarm first, then a new occurrence
+                    // will get a fresh event_id and start a new lifecycle.
+                    _logger.LogDebug(
+                        "AlarmStateManager: alarm {Key} already ACK'd; ignoring re-raise. " +
+                        "Alarm must be CLEARED before new occurrence can be raised.",
+                        alarmKey);
+                    return false;
+                }
+                
+                if (existing.State is AlarmState4.RtnUnack)
+                {
+                    // Alarm has returned to normal but not cleared yet.
+                    // Do not allow re-raise - operator must CLEAR first.
+                    _logger.LogDebug(
+                        "AlarmStateManager: alarm {Key} in RTN_UNACK state; ignoring re-raise. " +
+                        "Alarm must be CLEARED before new occurrence can be raised.",
+                        alarmKey);
+                    return false;
+                }
             }
 
             if (!IsCircuitClosed()) return false;
@@ -246,6 +284,7 @@ public sealed class AlarmStateManager
                 TagId          = tagId,
                 Level          = level,
                 State          = AlarmState4.ActiveUnack,
+                Source         = source,          // directed pool lookup in guards
                 OccurrenceId   = occurrenceId,
                 InstanceSeq    = instanceSeq,
                 CurrentEventId = eventId,
@@ -309,6 +348,33 @@ public sealed class AlarmStateManager
 
             if (state.State is not (AlarmState4.ActiveUnack or AlarmState4.ActiveAck))
                 return false;
+
+            // ── LIVE-VALUE DOUBLE-CHECK (dual-pool, safe-default) ─────────────────────
+            // MarkRtnAsync is called when the evaluator sees value exit the alarm zone.
+            // A single stale/noisy reading can falsely trigger RTN. Re-confirm with the
+            // live pool value. If still violating → reject RTN transition.
+            // SAFE DEFAULT: if tag is offline (not found in any pool) → allow RTN
+            // (offline tags cannot be re-evaluated; it is safer to let RTN proceed and
+            // rely on the AcknowledgeAsync bounce-back guard as the second line of defence).
+            if (state.SetpointValue.HasValue)
+            {
+                var (liveCheckVal, liveCheckFound) = GetLiveValue(state);
+                if (liveCheckFound)
+                {
+                    var sp           = state.SetpointValue.Value;
+                    bool isHighAlarm = state.Level is AlarmLevel.High or AlarmLevel.HighHigh;
+                    bool stillViolating = isHighAlarm ? liveCheckVal > sp : liveCheckVal < sp;
+                    if (stillViolating)
+                    {
+                        _logger.LogWarning(
+                            "MarkRtnAsync REJECTED: {Key} live={Live:F3} still {Dir} sp={SP:F3} " +
+                            "— RTN_UNACK transition suppressed (noisy/stale reading detected)",
+                            alarmKey, liveCheckVal, isHighAlarm ? "above" : "below", sp);
+                        return false;
+                    }
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────────
 
             if (!IsCircuitClosed()) return false;
 
@@ -437,8 +503,51 @@ public sealed class AlarmStateManager
 
             if (!IsCircuitClosed()) return false;
 
-            var ackAt    = DateTimeOffset.UtcNow;
-            var isRtn    = state.State == AlarmState4.RtnUnack;
+            var ackAt = DateTimeOffset.UtcNow;
+            var isRtn = state.State == AlarmState4.RtnUnack;
+
+            // ── BOUNCE-BACK GUARD (dual-pool, safe-default) ───────────────────────────
+            // RTN_UNACK means the evaluator once saw value return to normal, but the
+            // live value may have bounced back above (or below) the setpoint since then.
+            // We check BOTH OPC DA pool and PLC pool (VYAN tags live in PlcTagValuesPool).
+            // SAFE DEFAULT: if the tag is not found in any pool (offline), we block
+            // auto-clear as well — a phantom CLEARED row is worse than delaying clear.
+            if (isRtn && state.SetpointValue.HasValue)
+            {
+                var (liveVal, liveFound) = GetLiveValue(state);
+                var sp          = state.SetpointValue.Value;
+                var isHighAlarm = state.Level is AlarmLevel.High or AlarmLevel.HighHigh;
+
+                bool blockClear;
+                if (!liveFound)
+                {
+                    // Tag offline — safe default: do not auto-clear
+                    blockClear = true;
+                    _logger.LogWarning(
+                        "AcknowledgeAsync SAFE-DEFAULT: {Key} tag not found in any pool (offline) " +
+                        "— treating as ACTIVE_ACK to avoid phantom CLEARED row",
+                        alarmKey);
+                }
+                else
+                {
+                    blockClear = isHighAlarm ? liveVal > sp : liveVal < sp;
+                    if (blockClear)
+                        _logger.LogWarning(
+                            "AcknowledgeAsync BOUNCE-BACK: {Key} was RTN_UNACK but live={Live:F3} still " +
+                            "{Dir} sp={SP:F3} — treating as ACTIVE_ACK (not CLEARED)",
+                            alarmKey, liveVal, isHighAlarm ? "above" : "below", sp);
+                }
+
+                if (blockClear)
+                {
+                    isRtn = false;
+                    // Fix runtime state from RTN_UNACK back to ACTIVE_UNACK so the
+                    // evaluator will correctly re-evaluate it on the next cycle.
+                    state.State = AlarmState4.ActiveUnack;
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────────
+
             var ackState = isRtn ? "CLEARED" : "ACTIVE_ACK";
             var ackType  = isRtn ? "ALARM_CLEARED" : "ALARM_ACK";
 
@@ -454,12 +563,16 @@ public sealed class AlarmStateManager
                     INSERT INTO historian_raw.historian_events
                         (time, tag_id, event_type, severity, message,
                          alarm_state, alarm_priority,
-                         alarm_level, occurrence_id, instance_seq, transition_seq)
+                         alarm_level, occurrence_id, instance_seq, transition_seq,
+                         alarm_actual_value, alarm_setpoint,
+                         acknowledged_by, acknowledged_at)
                     VALUES
                         (@time, @tagId, @eventType, @severity, @message,
                          @alarmState, @priority,
                          @level, @occId, @seq,
-                         nextval('historian_raw.alarm_transition_seq'))
+                         nextval('historian_raw.alarm_transition_seq'),
+                         @raisedVal, @setpoint,
+                         @ackBy, @ackAt2)
                     RETURNING event_id, transition_seq
                     """;
                 await using var cmdA = new NpgsqlCommand(insertAck, conn) { CommandTimeout = _dbConfig.Database.CommandTimeout };
@@ -475,6 +588,10 @@ public sealed class AlarmStateManager
                 cmdA.Parameters.AddWithValue("@level",      state.Level.ToString());
                 cmdA.Parameters.AddWithValue("@occId",      state.OccurrenceId);
                 cmdA.Parameters.AddWithValue("@seq",        state.InstanceSeq);
+                cmdA.Parameters.AddWithValue("@raisedVal",  (object?)state.RaisedValue   ?? DBNull.Value);
+                cmdA.Parameters.AddWithValue("@setpoint",   (object?)state.SetpointValue ?? DBNull.Value);
+                cmdA.Parameters.AddWithValue("@ackBy",      operatorName);
+                cmdA.Parameters.AddWithValue("@ackAt2",     ackAt);
                 await using (var rdr = await cmdA.ExecuteReaderAsync(ct))
                 {
                     if (!await rdr.ReadAsync(ct)) throw new InvalidOperationException("ACK INSERT returned no row");
@@ -600,6 +717,49 @@ public sealed class AlarmStateManager
                 return false;
             }
 
+            // ── SAFETY GATE (dual-pool, safe-default) ─────────────────────────────────────────
+            // ISA-18.2 §5.3: An alarm should only be cleared when the process value has returned
+            // to the normal operating range. Allowing clear while value is still violating causes
+            // the evaluator to immediately re-raise a new occurrence, creating phantom cleared rows.
+            // We check BOTH OPC DA pool and PLC pool (VYAN tags live in PlcTagValuesPool).
+            // SAFE DEFAULT: if tag is offline (not found in any pool), block the clear — it is
+            // safer to require a manual override than to produce a phantom CLEARED row.
+            if (state.SetpointValue.HasValue && state.RaisedValue.HasValue)
+            {
+                var (liveVal, liveFound) = GetLiveValue(state);
+                var sp           = state.SetpointValue.Value;
+                bool isHighAlarm = state.Level is AlarmLevel.High or AlarmLevel.HighHigh;
+
+                bool stillViolating;
+                if (!liveFound)
+                {
+                    // Tag not found in any pool — safe default: block the clear
+                    stillViolating = true;
+                    _logger.LogWarning(
+                        "ClearAsync BLOCKED (SAFE-DEFAULT): {Key} tag not in any pool (offline) — " +
+                        "cannot verify value returned to normal (ISA-18.2 safety gate)",
+                        alarmKey);
+                }
+                else
+                {
+                    stillViolating = isHighAlarm ? liveVal > sp : liveVal < sp;
+                    if (stillViolating)
+                        _logger.LogWarning(
+                            "ClearAsync BLOCKED: {Key} live={Live:F3} sp={SP:F3} still violating (ISA-18.2 safety gate)",
+                            alarmKey, liveVal, sp);
+                }
+
+                if (stillViolating)
+                {
+                    sem.Release();
+                    throw new AlarmClearBlockedException(
+                        alarmKey, state.TagId,
+                        liveFound ? liveVal : double.NaN,
+                        sp, isHighAlarm);
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────────────────────
+
             // If forceAck is set and alarm is still ACTIVE_UNACK, perform the ACK transition first
             // (within the same lock so no race condition is possible).
             if (forceAck && state.State == AlarmState4.ActiveUnack)
@@ -653,12 +813,16 @@ public sealed class AlarmStateManager
                     INSERT INTO historian_raw.historian_events
                         (time, tag_id, event_type, severity, message,
                          alarm_state, alarm_priority,
-                         alarm_level, occurrence_id, instance_seq, transition_seq)
+                         alarm_level, occurrence_id, instance_seq, transition_seq,
+                         alarm_actual_value, alarm_setpoint,
+                         cleared_by, cleared_at)
                     VALUES
                         (@time, @tagId, 'ALARM_CLEARED', @severity, @message,
                          'CLEARED', @priority,
                          @level, @occId, @seq,
-                         nextval('historian_raw.alarm_transition_seq'))
+                         nextval('historian_raw.alarm_transition_seq'),
+                         @raisedVal, @setpoint,
+                         @clearedBy, @clearedAt2)
                     RETURNING event_id, transition_seq
                     """;
                 await using var cmdC = new NpgsqlCommand(insertClear, conn) { CommandTimeout = _dbConfig.Database.CommandTimeout };
@@ -670,6 +834,10 @@ public sealed class AlarmStateManager
                 cmdC.Parameters.AddWithValue("@level",    state.Level.ToString());
                 cmdC.Parameters.AddWithValue("@occId",    state.OccurrenceId);
                 cmdC.Parameters.AddWithValue("@seq",      state.InstanceSeq);
+                cmdC.Parameters.AddWithValue("@raisedVal",  (object?)state.RaisedValue   ?? DBNull.Value);
+                cmdC.Parameters.AddWithValue("@setpoint",   (object?)state.SetpointValue ?? DBNull.Value);
+                cmdC.Parameters.AddWithValue("@clearedBy",  operatorName);
+                cmdC.Parameters.AddWithValue("@clearedAt2", clearAt);
                 await using (var rdr = await cmdC.ExecuteReaderAsync(ct))
                 {
                     if (!await rdr.ReadAsync(ct)) throw new InvalidOperationException("CLEAR INSERT historian_events returned no row");
@@ -745,6 +913,60 @@ public sealed class AlarmStateManager
     // =========================================================
     // PRIVATE HELPERS
     // =========================================================
+
+    // =========================================================
+    // DUAL-POOL LIVE VALUE LOOKUP
+    // =========================================================
+
+    /// <summary>
+    /// Returns (value, found) for a tag's live value.
+    /// Uses <see cref="AlarmRuntimeState.Source"/> for a DIRECTED lookup — only queries the
+    /// correct pool. Falls back to dual-pool search when source is Unknown (test raises, etc.).
+    /// <para>
+    /// found=false means the tag is offline / not in any pool — callers treat this as
+    /// SAFE DEFAULT (block the transition rather than allow a phantom CLEARED row).
+    /// </para>
+    /// </summary>
+    private (double value, bool found) GetLiveValue(AlarmRuntimeState state)
+    {
+        return state.Source switch
+        {
+            TagSource.OpcDa  => GetFromOpcPool(state.TagId),
+            TagSource.Plc    => GetFromPlcPool(state.TagId),
+            _                => GetFromOpcPool(state.TagId) is (_, true) result
+                                    ? result
+                                    : GetFromPlcPool(state.TagId),   // Unknown: try both
+        };
+    }
+
+    private (double value, bool found) GetFromOpcPool(string tagId)
+    {
+        if (_tagPool == null) return (0.0, false);
+        var entries = _tagPool.GetTagValues(new[] { tagId });
+        var entry   = entries.Count > 0 ? entries[0] : null;
+        if (entry == null || entry.IsStale) return (0.0, false);
+        return double.TryParse(entry.Value,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var v)
+            ? (v, true)
+            : (0.0, false);
+    }
+
+    private (double value, bool found) GetFromPlcPool(string tagId)
+    {
+        if (_plcTagPool == null) return (0.0, false);
+        var entries = _plcTagPool.GetTagValues(new[] { tagId }, plcId: null);
+        var entry   = entries.Count > 0 ? entries[0] : null;
+        if (entry == null || entry.ComputedQuality != PlcTagQuality.Good) return (0.0, false);
+        var valStr = entry.Value?.ToString() ?? "";
+        return double.TryParse(valStr,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var v)
+            ? (v, true)
+            : (0.0, false);
+    }
 
     private SemaphoreSlim GetOrCreateLock(string alarmKey) =>
         _keyLocks.GetOrAdd(alarmKey, _ => new SemaphoreSlim(1, 1));
@@ -822,5 +1044,28 @@ public sealed class AlarmStateManager
         return setpoint.HasValue
             ? $"{tagId} exceeded {label} limit: {value:G6} (setpoint: {setpoint:G6})"
             : $"{tagId} exceeded {label} limit: {value:G6}";
+    }
+}
+
+/// <summary>
+/// Thrown by AlarmStateManager.ClearAsync when the process value is still violating the alarm
+/// setpoint. The controller catches this and returns HTTP 422 to the frontend.
+/// </summary>
+public sealed class AlarmClearBlockedException : Exception
+{
+    public string AlarmKey   { get; }
+    public string TagId      { get; }
+    public double LiveValue  { get; }
+    public double Setpoint   { get; }
+    public bool   IsHighAlarm { get; }
+
+    public AlarmClearBlockedException(string alarmKey, string tagId, double liveValue, double setpoint, bool isHighAlarm)
+        : base($"Cannot clear {alarmKey}: process value {liveValue:G6} is still {(isHighAlarm ? "above" : "below")} setpoint {setpoint:G6}")
+    {
+        AlarmKey    = alarmKey;
+        TagId       = tagId;
+        LiveValue   = liveValue;
+        Setpoint    = setpoint;
+        IsHighAlarm = isHighAlarm;
     }
 }

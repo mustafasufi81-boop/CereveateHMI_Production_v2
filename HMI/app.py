@@ -222,6 +222,12 @@ def api_system_status():
     with _rest_lock:
         ts = dict(_transport_state)
 
+    # S2-3: Calculate PLC-specific metrics
+    now_mono = time.monotonic()
+    plc_mqtt_age_s = (round(now_mono - ts["last_plc_mqtt_msg_at"], 1)
+                      if ts["last_plc_mqtt_msg_at"] else None)
+    plc_mqtt_alive = plc_mqtt_age_s is not None and plc_mqtt_age_s < 30
+
     from flask import jsonify as _jsonify
     return _jsonify({
         'flask':    {'ok': True, 'uptime_s': round(_time.time() - _flask_start_time)},
@@ -237,6 +243,12 @@ def api_system_status():
             'rest_poll_count':  ts['rest_poll_count'],
             'rest_error_count': ts['rest_error_count'],
             'rest_last_error':  ts['rest_last_error'],
+        },
+        # S2-3: Per-PLC transport state
+        'plc_transport': {
+            'last_plc_mqtt_msg_at': ts['last_plc_mqtt_msg_at'],
+            'plc_mqtt_age_seconds': plc_mqtt_age_s,
+            'plc_mqtt_alive': plc_mqtt_alive
         },
         'clients':   len(connected_clients),
         'cacheSize': len(latest_tag_values),
@@ -544,7 +556,8 @@ _transport_state = {
     "rest_consecutive_ok": 0,      # successes since last error
     "rest_last_error":    None,    # last error string
     # Metrics for health endpoint / debugging
-    "last_mqtt_msg_at":   None,    # monotonic time of last MQTT message
+    "last_mqtt_msg_at":   None,    # monotonic time of last MQTT message (any source)
+    "last_plc_mqtt_msg_at": None,  # S2-2: monotonic time of last PLC MQTT message only
     "last_signalr_msg_at":None,
     "last_rest_ok_at":    None,
     "rest_poll_count":    0,
@@ -902,8 +915,14 @@ def on_mqtt_message(topic, filtered_tags, raw_data):
     global latest_tag_values
 
     # ── Fix #3 + #4: stamp MQTT liveness and re-arbitrate source ──
+    # S2-2: Track per-PLC MQTT liveness separately
     with _rest_lock:
         _transport_state["last_mqtt_msg_at"] = time.monotonic()
+        
+        # S2-2: Track PLC-specific MQTT liveness (topic starts with 'plc/')
+        if topic and topic.startswith('plc/'):
+            _transport_state["last_plc_mqtt_msg_at"] = time.monotonic()
+        
         if not _transport_state["mqtt_alive"]:
             _transport_state["mqtt_alive"] = True
             _transport_state["grace_cancelled"] = True   # cancel any running grace timer

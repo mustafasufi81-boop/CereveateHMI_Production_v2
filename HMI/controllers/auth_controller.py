@@ -224,7 +224,7 @@ def complete_password_setup_endpoint(current_user):
 @auth_bp.route('/mfa/setup', methods=['POST'])
 @token_required
 def mfa_setup(current_user):
-    """Get MFA token info (6-digit token system)"""
+    """Get MFA backup key status (expiry info only — key value is never returned)"""
     token = request.headers.get('Authorization').split(' ')[1]
     data = container.auth_service.decode_token(token)
     user_id = data['user_id']
@@ -232,15 +232,14 @@ def mfa_setup(current_user):
     token_info = container.auth_service.get_current_totp(user_id)
     
     return jsonify({
-        'message': 'Use your 6-digit MFA token received during registration',
-        'tokenInfo': token_info,
-        'note': 'If token is expired or lost, use default token: 123456'
+        'message': 'Use your 6-digit MFA backup key received during registration.',
+        'tokenInfo': token_info
     })
 
 @auth_bp.route('/mfa/totp-code', methods=['GET'])
 @token_required
 def get_totp_code(current_user):
-    """Get current MFA token info"""
+    """Get MFA backup key status (expiry info only)"""
     token = request.headers.get('Authorization').split(' ')[1]
     data = container.auth_service.decode_token(token)
     user_id = data['user_id']

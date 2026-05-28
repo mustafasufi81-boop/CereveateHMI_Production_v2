@@ -1,0 +1,58 @@
+{
+  "run_id": "20260526_012355",
+  "timestamp": "2026-05-25T19:53:55.086471Z",
+  "mode": "full_soak30s_onlyB",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T19:53:55.086471Z",
+    "memory_rss_mb": 31.9,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T19:54:05.575520Z",
+    "memory_rss_mb": 33.8,
+    "thread_count": 5,
+    "handle_count": 225,
+    "delta_memory_rss_mb": 1.9,
+    "delta_thread_count": 1,
+    "delta_handle_count": 27
+  },
+  "sections": {
+    "B": {
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "B1 pool freshness",
+          "passed": true,
+          "message": "median_age=1ms, max_age=1ms, stale_events=0"
+        },
+        {
+          "id": "B2 tagCount stable",
+          "passed": true,
+          "message": "min=27, max=27, drops_below_27=0 (out of 100 reads)"
+        },
+        {
+          "id": "B3 pool 30s sustained",
+          "passed": true,
+          "message": "Empty windows: 0/6  (0 = pool always populated)"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "PASS",
+  "total_passed": 3,
+  "total_failed": 0,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

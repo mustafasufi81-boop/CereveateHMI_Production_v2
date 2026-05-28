@@ -180,9 +180,14 @@ const ForgotPassword = () => {
                                             </FormLabel>
                                             <FormControl>
                                                 <Input
-                                                    type={method === 'question' ? 'text' : 'password'}
-                                                    placeholder={method === 'question' ? 'Your answer' : 'Enter 6-digit key'}
                                                     {...field}
+                                                    type="password"
+                                                    placeholder={method === 'question' ? 'Your answer' : 'Enter 6-digit key'}
+                                                    autoComplete="new-password"
+                                                    name="sq_ans_nofill"
+                                                    id="sq_ans_nofill"
+                                                    data-lpignore="true"
+                                                    data-form-type="other"
                                                 />
                                             </FormControl>
                                             <FormMessage />

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Activity, AlertTriangle, Wifi, Database, Settings, User, LogOut, Shield, TrendingUp } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,7 @@ import { usePermission } from "@/hooks/usePermission";
 import mqttWebSocketService from "@/services/mqtt-websocket";
 import { ConnectionHealthBanner } from "./ConnectionHealthBanner";
 import { useConnectionHealth } from "@/hooks/useConnectionHealth";
+import { useOpcPlcStatus } from "@/hooks/useOpcPlcStatus";
 import { ISA_101_TREND_CONFIG, MAX_SELECTED_TAGS } from "@/config/isa101-trend-config";
 
 // API Configuration
@@ -81,7 +82,7 @@ const ISA_COLORS = {
   // System Status
   statusOnline: '#00C851',
   statusOffline: '#FF4444',
-  alarmCritical: '#FF4444',  // alias â€” same red as equipmentAlarm
+  alarmCritical: '#FF4444',  // alias — same red as equipmentAlarm
 };
 
 interface Asset {
@@ -141,7 +142,7 @@ const ASSET_TREE: Asset[] = [
                 name: 'MOTOR',
                 type: 'component',
                 tags: [
-                  { id: 'TT-101', name: 'TT-101', description: 'MOTOR TEMPERATURE', value: 85.2, unit: 'Â°C', sp: 80, hiLimit: 100, loLimit: 60, status: 'warning', mode: 'auto' },
+                  { id: 'TT-101', name: 'TT-101', description: 'MOTOR TEMPERATURE', value: 85.2, unit: '°C', sp: 80, hiLimit: 100, loLimit: 60, status: 'warning', mode: 'auto' },
                   { id: 'ST-101', name: 'ST-101', description: 'MOTOR SPEED', value: 1485, unit: 'RPM', sp: 1500, hiLimit: 1600, loLimit: 1400, status: 'normal', mode: 'auto' },
                   { id: 'VT-101', name: 'VT-101', description: 'VIBRATION', value: 8.5, unit: 'mm/s', sp: 5, hiLimit: 7, loLimit: 0, status: 'alarm', mode: 'auto' },
                   { id: 'CT-101', name: 'CT-101', description: 'CURRENT', value: 145, unit: 'A', sp: 150, hiLimit: 180, loLimit: 100, status: 'normal', mode: 'auto' },
@@ -152,7 +153,7 @@ const ASSET_TREE: Asset[] = [
                 name: 'BEARING',
                 type: 'component',
                 tags: [
-                  { id: 'TT-102', name: 'TT-102', description: 'BEARING TEMP', value: 72.5, unit: 'Â°C', sp: 70, hiLimit: 85, loLimit: 40, status: 'normal', mode: 'auto' },
+                  { id: 'TT-102', name: 'TT-102', description: 'BEARING TEMP', value: 72.5, unit: '°C', sp: 70, hiLimit: 85, loLimit: 40, status: 'normal', mode: 'auto' },
                   { id: 'VT-102', name: 'VT-102', description: 'BEARING VIB', value: 3.2, unit: 'mm/s', sp: 3, hiLimit: 5, loLimit: 0, status: 'normal', mode: 'auto' },
                 ]
               },
@@ -178,7 +179,7 @@ const ASSET_TREE: Asset[] = [
                 tags: [
                   { id: 'PT-201', name: 'PT-201', description: 'DISCHARGE PRESSURE', value: 4.5, unit: 'bar', sp: 4.2, hiLimit: 5.5, loLimit: 3, status: 'normal', mode: 'auto' },
                   { id: 'FT-201', name: 'FT-201', description: 'FLOW RATE', value: 165, unit: 'L/min', sp: 160, hiLimit: 200, loLimit: 100, status: 'normal', mode: 'auto' },
-                  { id: 'TT-201', name: 'TT-201', description: 'MOTOR TEMP', value: 68.3, unit: 'Â°C', sp: 65, hiLimit: 90, loLimit: 50, status: 'normal', mode: 'auto' },
+                  { id: 'TT-201', name: 'TT-201', description: 'MOTOR TEMP', value: 68.3, unit: '°C', sp: 65, hiLimit: 90, loLimit: 50, status: 'normal', mode: 'auto' },
                 ]
               }
             ]
@@ -201,7 +202,7 @@ const ASSET_TREE: Asset[] = [
                 type: 'component',
                 tags: [
                   { id: 'LT-301', name: 'LT-301', description: 'LEVEL', value: 67.5, unit: '%', sp: 70, hiLimit: 90, loLimit: 20, status: 'normal', mode: 'auto' },
-                  { id: 'TT-301', name: 'TT-301', description: 'TEMPERATURE', value: 45.2, unit: 'Â°C', sp: 45, hiLimit: 60, loLimit: 30, status: 'normal', mode: 'auto' },
+                  { id: 'TT-301', name: 'TT-301', description: 'TEMPERATURE', value: 45.2, unit: '°C', sp: 45, hiLimit: 60, loLimit: 30, status: 'normal', mode: 'auto' },
                 ]
               }
             ]
@@ -302,7 +303,7 @@ const formatHistorianTimestamp = (timestamp: string | Date, includeMilliseconds:
 };
 
 export const IndustrialHMIPrototype = () => {
-  logInfo('ðŸš€ [HMI-INIT] IndustrialHMIPrototype component mounted');
+  logInfo('🚀 [HMI-INIT] IndustrialHMIPrototype component mounted');
   
   const navigate = useNavigate();
   const { user, sessionId } = useAuth(); // Add authentication and session tracking
@@ -320,6 +321,8 @@ export const IndustrialHMIPrototype = () => {
   
   // Connection health (MQTT + Flask)
   const connHealth = useConnectionHealth();
+  // OPC server + PLC gateway status (polled from C# backend every 10s)
+  const opcPlcStatus = useOpcPlcStatus();
 
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false);
@@ -353,13 +356,13 @@ export const IndustrialHMIPrototype = () => {
   const [isDraggingTag, setIsDraggingTag] = useState(false);
   const [centerTab, setCenterTab] = useState<'trends' | 'analytics' | 'predictive'>('trends');
 
-  // â”€â”€ Analytics visibility guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Analytics visibility guard ────────────────────────────────────────────
   // Reads analytics.canView from DB via usePermission.
   // Backend sets this correctly per role:
-  //   Admin     â†’ true  (isAdmin shortcut in usePermission)
-  //   Operator  â†’ true  (role_module_permissions row or fallback)
-  //   Engineer  â†’ true  (role_module_permissions row or fallback)
-  //   Viewer    â†’ false (fallback explicitly sets analytics: none_p)
+  //   Admin     → true  (isAdmin shortcut in usePermission)
+  //   Operator  → true  (role_module_permissions row or fallback)
+  //   Engineer  → true  (role_module_permissions row or fallback)
+  //   Viewer    → false (fallback explicitly sets analytics: none_p)
   const canViewAnalytics = usePermission('analytics', 'canView');
   const canViewReports   = usePermission('reports', 'canView');
   const canViewAlarms    = usePermission('alarms',    'canView');
@@ -369,6 +372,13 @@ export const IndustrialHMIPrototype = () => {
   const [opcFailed,  setOpcFailed]  = useState(false);
   const [plcFailed,  setPlcFailed]  = useState(false);
   const [usingRestFallback, setUsingRestFallback] = useState(false);
+
+  // OPC/PLC connection state from backend health endpoint
+  // Possible values: 'Connected' | 'Disconnected' | 'Reconnecting' | 'Degraded' | 'Faulted' | 'Unknown'
+  const [opcConnectionState, setOpcConnectionState] = useState<string>('Unknown');
+  // Per-source status: array of { server_progid, tag_count, live_tag_count, status }
+  type SourceStatus = { server_progid: string; tag_count: number; live_tag_count: number; status: 'live' | 'disconnected' };
+  const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[]>([]);
 
   // Auto-snap back to TRENDS if user loses analytics access while on a restricted tab
   useEffect(() => {
@@ -670,7 +680,7 @@ export const IndustrialHMIPrototype = () => {
 
   // WebSocket connection for live MQTT data
   useEffect(() => {
-    logInfo('ðŸ”Œ Connecting to WebSocket for MQTT live data...');
+    logInfo('🔌 Connecting to WebSocket for MQTT live data...');
 
     // Subscribe to real-time connection state changes (instant UI update)
     const unsubConn = mqttWebSocketService.onConnectionChange((connected) => {
@@ -678,7 +688,7 @@ export const IndustrialHMIPrototype = () => {
       if (connected) {
         setUsingRestFallback(false);
       }
-      logInfo(connected ? 'âœ… Socket.IO connected' : 'âš ï¸ Socket.IO disconnected');
+      logInfo(connected ? '✅ Socket.IO connected' : 'âš ï¸ Socket.IO disconnected');
     });
 
     mqttWebSocketService.connect();
@@ -749,7 +759,7 @@ export const IndustrialHMIPrototype = () => {
             const updatedTags = prevTags.map(tag => {
               const mqttData = updates[tag.id];
               if (mqttData && mqttData.unit && !tag.unit) {
-                logInfo(`[IndustrialHMI] ðŸ”§ Updating unit for tag ${tag.id}: "${mqttData.unit}"`);
+                logInfo(`[IndustrialHMI] 🔧 Updating unit for tag ${tag.id}: "${mqttData.unit}"`);
                 return { ...tag, unit: mqttData.unit };
               }
               return tag;
@@ -763,7 +773,7 @@ export const IndustrialHMIPrototype = () => {
     };
 
     const handleMQTTAlarm = (alarmData: any) => {
-      logInfo('ðŸš¨ MQTT Alarm received:', alarmData);
+      logInfo('🚨 MQTT Alarm received:', alarmData);
       
       // Add or update alarm in the alarms array
       setAlarms(prevAlarms => {
@@ -803,6 +813,38 @@ export const IndustrialHMIPrototype = () => {
 
   // REST fallback: poll /api/opc/values + /api/plc/values every 1s
   // Restarts automatically when canViewHmi changes (permission restored -> data resumes)
+
+  // Poll /api/source-status every 10s — shows per-server_progid live/disconnected state
+  // Only marks a source DISCONNECTED if it has enabled tags configured in DB but no fresh data.
+  // If no sources are configured in DB at all, nothing is shown (not a false alarm).
+  useEffect(() => {
+    const pollSourceStatus = async () => {
+      try {
+        const token = localStorage.getItem('auth_token') || '';
+        const res = await fetch('/api/source-status', { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json();
+        const sources: SourceStatus[] = data?.sources || [];
+        setSourceStatuses(sources);
+        // Derive overall OPC state for the existing badge
+        if (sources.length === 0) {
+          setOpcConnectionState('Unknown');
+        } else if (sources.every(s => s.status === 'live')) {
+          setOpcConnectionState('Connected');
+        } else if (sources.some(s => s.status === 'live')) {
+          setOpcConnectionState('Degraded');
+        } else {
+          setOpcConnectionState('Disconnected');
+        }
+      } catch {
+        // network error — don't update state, keep last known
+      }
+    };
+    pollSourceStatus();
+    const t = setInterval(pollSourceStatus, 10_000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     if (!canViewHmi) {
       setUsingRestFallback(false);
@@ -907,7 +949,7 @@ export const IndustrialHMIPrototype = () => {
         if (isPaused) {
           continue;
         }
-        logDebug(`[Historian] ðŸ” State object:`, JSON.stringify({
+        logDebug(`[Historian] 🔍 State object:`, JSON.stringify({
           timeRange: state.timeRange,
           customStartDate: state.customStartDate,
           customEndDate: state.customEndDate,
@@ -933,14 +975,14 @@ export const IndustrialHMIPrototype = () => {
               // Use custom date range (DATE ONLY format: YYYY-MM-DD)
               startParam = state.customStartDate; // e.g., "2026-04-18"
               endParam = state.customEndDate;     // e.g., "2026-04-19"
-              logDebug(`[Historian] ðŸ“… Using CUSTOM range for ${tag.id}: ${startParam} to ${endParam}`);
+              logDebug(`[Historian] 📅 Using CUSTOM range for ${tag.id}: ${startParam} to ${endParam}`);
             } else {
               // Calculate relative time range (for live/recent data)
               const endTime = new Date();
               const startTime = new Date(endTime.getTime() - state.timeRange * 60 * 1000);
               startParam = startTime.toISOString();
               endParam = endTime.toISOString();
-              logDebug(`[Historian] â° Using RELATIVE range for ${tag.id}: ${state.timeRange} minutes`);
+              logDebug(`[Historian] ⏰ Using RELATIVE range for ${tag.id}: ${state.timeRange} minutes`);
             }
 
             // INDUSTRY STANDARD: Use 'auto' aggregation mode
@@ -974,14 +1016,14 @@ export const IndustrialHMIPrototype = () => {
 
             // Warn if no data returned
             if (data.length === 0) {
-              logWarn(`[Historian] âš ï¸ No data found for ${tag.id} in range ${startParam} to ${endParam}`);
-              logWarn(`[Historian] ðŸ’¡ Tip: Check if data exists in this date range or try a larger time window`);
+              logWarn(`[Historian] ⚠️ No data found for ${tag.id} in range ${startParam} to ${endParam}`);
+              logWarn(`[Historian] 💡 Tip: Check if data exists in this date range or try a larger time window`);
             }
 
             if (data && data.length > 0) {
               // INDUSTRY STANDARD: Cache limit check (50K points max per tag)
               if (data.length > 50000) {
-                logWarn(`[Historian] âš ï¸ Data exceeds cache limit. Received ${data.length} points, keeping 50000`);
+                logWarn(`[Historian] ⚠️ Data exceeds cache limit. Received ${data.length} points, keeping 50000`);
                 data.length = 50000; // Truncate to cache limit
               }
               
@@ -1003,7 +1045,7 @@ export const IndustrialHMIPrototype = () => {
               trendDataRef.current[tag.id] = trendData;
               historianUpdates[tag.id] = trendData;
             } else {
-              logWarn(`[Historian] âš ï¸ No data returned for ${tag.id} - empty chart will be shown`);
+              logWarn(`[Historian] ⚠️ No data returned for ${tag.id} - empty chart will be shown`);
               historianUpdates[tag.id] = [];
             }
 
@@ -1037,12 +1079,12 @@ export const IndustrialHMIPrototype = () => {
     const tagIdStr = String(tagId);
     const tagIds = selectedTags.map(t => String(t.id));
     
-    logInfo('[IndustrialHMI] ðŸ·ï¸ Tag toggle:', tagId);
-    logInfo('[IndustrialHMI] ðŸ“‹ Tag data received:', tagData);
+    logInfo('[IndustrialHMI] 🏷️ Tag toggle:', tagId);
+    logInfo('[IndustrialHMI] 📋 Tag data received:', tagData);
     
     if (tagIds.includes(tagIdStr)) {
       // Deselect
-      logInfo('[IndustrialHMI] âŒ Deselecting tag:', tagIdStr);
+      logInfo('[IndustrialHMI] ❌ Deselecting tag:', tagIdStr);
       setSelectedTags(prev => {
         const updated = prev.filter(t => String(t.id) !== tagIdStr);
         selectedTagsRef.current = updated;
@@ -1058,13 +1100,13 @@ export const IndustrialHMIPrototype = () => {
       
       // Extract unit from tag data - check all possible field names
       const unit = tagData?.eng_unit || tagData?.unit || tagData?.engUnit || '';
-      logInfo('[IndustrialHMI] ðŸ”§ Extracted unit:', unit);
+      logInfo('[IndustrialHMI] 🔧 Extracted unit:', unit);
       
       // ISA-101: Extract contextual information for situation awareness
       const plant = tagData?.plant || '';
       const area = tagData?.area || '';
       const equipment = tagData?.equipment || '';
-      logInfo('[IndustrialHMI] ðŸ“ Context:', { plant, area, equipment });
+      logInfo('[IndustrialHMI] 📍 Context:', { plant, area, equipment });
       
       // Create tag object with data from AssetSidebar
       const newTag: Tag = {
@@ -1083,7 +1125,7 @@ export const IndustrialHMIPrototype = () => {
         // If a trend window is active/targeted, assign tag to it (allows cross-unit mixing)
         windowId: tagData?._forceWindowId ?? activeTrendWindowId ?? undefined
       };
-      logInfo('[IndustrialHMI] âœ… Created tag:', newTag);
+      logInfo('[IndustrialHMI] ✅ Created tag:', newTag);
       setSelectedTags(prev => {
         const updated = [...prev, newTag];
         selectedTagsRef.current = updated;
@@ -1172,9 +1214,9 @@ export const IndustrialHMIPrototype = () => {
       const result = await response.json();
       
       if (result.success) {
-        logInfo(`âœ… Alarm ${id} acknowledged successfully in database`);
+        logInfo(`✅ Alarm ${id} acknowledged successfully in database`);
       } else {
-        logError(`âŒ Failed to acknowledge alarm ${id}:`, result.error);
+        logError(`❌ Failed to acknowledge alarm ${id}:`, result.error);
         // Revert optimistic update on failure
         setAlarms(prev => prev.map(alm => alm.id === id ? { ...alm, acknowledged: false } : alm));
       }
@@ -1265,12 +1307,12 @@ export const IndustrialHMIPrototype = () => {
       const tagsForUnit = getTagsForWindow(unit);
       tagsForUnit.forEach(tag => {
         if (trendDataRef.current[tag.id]) {
-          logDebug(`[Custom Range] ðŸ—‘ï¸ Clearing cached data for ${tag.id} before applying custom range`);
+          logDebug(`[Custom Range] 🗑️ Clearing cached data for ${tag.id} before applying custom range`);
           delete trendDataRef.current[tag.id];
         }
       });
       
-      logDebug(`[Custom Range] âœ… Applying custom range: ${startDate} to ${endDate} for unit ${unit}`);
+      logDebug(`[Custom Range] ✅ Applying custom range: ${startDate} to ${endDate} for unit ${unit}`);
       
       updateChartState(unit, {
         showCustomDatePicker: false,
@@ -1278,7 +1320,7 @@ export const IndustrialHMIPrototype = () => {
         customEndDate: endDate
       });
     } else {
-      logError(`[Custom Range] âŒ ERROR: customStartDate or customEndDate is empty!`);
+      logError(`[Custom Range] ❌ ERROR: customStartDate or customEndDate is empty!`);
     }
   };
 
@@ -1312,7 +1354,7 @@ export const IndustrialHMIPrototype = () => {
             }}
           >
             <span style={{ width: '16px', fontSize: '10px', color: ISA_COLORS.foreground }}>
-              {hasChildren && (isExpanded ? 'â–¼' : 'â–¶')}
+              {hasChildren && (isExpanded ? '▼' : '▶')}
             </span>
             <span style={{ 
               fontSize: '11px', 
@@ -1379,7 +1421,7 @@ export const IndustrialHMIPrototype = () => {
       flexDirection: 'column',
       overflow: 'hidden'
     }}>
-      {/* Global connection health banner â€” shows when MQTT/Flask is down or data is stale */}
+      {/* Global connection health banner — shows when MQTT/Flask is down or data is stale */}
       <ConnectionHealthBanner />
 
       {/* Shift Warning Notification */}
@@ -1426,7 +1468,63 @@ export const IndustrialHMIPrototype = () => {
             {usingRestFallback && !opcFailed && (
               <span style={{ color: '#ffaa00', marginLeft: 4, fontSize: '10px' }}>| REST FALLBACK ACTIVE</span>
             )}
+            {/* OPC Server disconnected */}
+            {!opcPlcStatus.loading && opcPlcStatus.opc && !opcPlcStatus.opc.connected && (
+              <span style={{
+                color: '#ff2222',
+                marginLeft: 8,
+                fontWeight: 700,
+                fontSize: '11px',
+                padding: '2px 7px',
+                border: '1px solid #ff2222',
+                borderRadius: '3px',
+                backgroundColor: 'rgba(255,34,34,0.12)',
+                animation: 'pulse 1.5s infinite',
+              }}>
+                ⚠ OPC {opcPlcStatus.opc.status?.toUpperCase() || 'DISCONNECTED'}
+              </span>
+            )}
+            {/* PLC(s) disconnected */}
+            {!opcPlcStatus.loading && opcPlcStatus.anyPlcDisconnected && opcPlcStatus.plcs
+              .filter(p => !p.connected)
+              .map(p => (
+                <span key={p.id} style={{
+                  color: '#ff7700',
+                  marginLeft: 8,
+                  fontWeight: 700,
+                  fontSize: '11px',
+                  padding: '2px 7px',
+                  border: '1px solid #ff7700',
+                  borderRadius: '3px',
+                  backgroundColor: 'rgba(255,119,0,0.12)',
+                  animation: 'pulse 1.5s infinite',
+                }}>
+                  ⚠ PLC {p.name || p.id}: NOT CONNECTED
+                </span>
+              ))
+            }
           </div>
+          {/* Per-source OPC/PLC badges — only shown for sources that have enabled tags in DB.
+              DISCONNECTED = tags are configured for this source but no fresh data is arriving.
+              If source has no configured tags in DB, it is never shown here. */}
+          {sourceStatuses.map(src => (
+            <div key={src.server_progid} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <div style={{
+                width: '10px', height: '10px', borderRadius: '50%',
+                backgroundColor: src.status === 'live' ? '#00c851' : '#ff4444',
+                boxShadow: src.status === 'live' ? '0 0 5px #00c851' : '0 0 5px #ff4444',
+              }} />
+              <span style={{
+                fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px',
+                color: src.status === 'live' ? '#00c851' : '#ff4444',
+              }}>
+                {src.server_progid}: {src.status === 'live' ? 'LIVE' : 'DISCONNECTED'}
+              </span>
+            </div>
+          ))}
+          {sourceStatuses.length === 0 && opcConnectionState !== 'Unknown' && (
+            <span style={{ fontSize: '10px', color: '#888' }}>NO SOURCES CONFIGURED</span>
+          )}
           <div style={{ display: 'flex', gap: '16px', marginLeft: '24px' }}>
             <span style={{ color: ISA_COLORS.alarmP1, fontWeight: 700 }}>P1: {systemStatus.alarmCount.p1}</span>
             <span style={{ color: ISA_COLORS.alarmP2, fontWeight: 700 }}>P2: {systemStatus.alarmCount.p2}</span>
@@ -1474,7 +1572,7 @@ export const IndustrialHMIPrototype = () => {
               gap: '6px'
             }}
           >
-            ðŸ› DEBUG {showDebugPanel ? 'ON' : 'OFF'}
+            🐛 DEBUG {showDebugPanel ? 'ON' : 'OFF'}
           </button>
 
         </div>
@@ -1543,7 +1641,7 @@ export const IndustrialHMIPrototype = () => {
         {/* CENTER - TRENDS / ANALYTICS / PREDICTIVE TABS */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-          {/* â”€â”€ Professional Tab Bar â”€â”€ */}
+          {/* ── Professional Tab Bar ── */}
           <div style={{
             display: 'flex',
             alignItems: 'stretch',
@@ -1553,7 +1651,7 @@ export const IndustrialHMIPrototype = () => {
             height: '38px',
             paddingLeft: '4px',
           }}>
-            {/* TRENDS â€” always visible */}
+            {/* TRENDS — always visible */}
             <button
               onClick={() => setCenterTab('trends')}
               style={{
@@ -1575,7 +1673,7 @@ export const IndustrialHMIPrototype = () => {
             {/* Divider */}
             <div style={{ width: '1px', backgroundColor: '#1F2937', margin: '8px 2px' }} />
 
-            {/* ANALYTICS â€” hidden from Viewer */}
+            {/* ANALYTICS — hidden from Viewer */}
             {canViewAnalytics && (
               <button
                 onClick={() => setCenterTab('analytics')}
@@ -1604,7 +1702,7 @@ export const IndustrialHMIPrototype = () => {
               </button>
             )}
 
-            {/* PREDICTIVE â€” hidden from Viewer */}
+            {/* PREDICTIVE — hidden from Viewer */}
             {canViewAnalytics && (
               <>
                 <div style={{ width: '1px', backgroundColor: '#1F2937', margin: '8px 2px' }} />
@@ -1635,7 +1733,7 @@ export const IndustrialHMIPrototype = () => {
               </>
             )}
 
-            {/* REPORTS â€” opens in new tab */}
+            {/* REPORTS — opens in new tab */}
             {canViewReports && (
               <>
                 <div style={{ width: '1px', backgroundColor: '#1F2937', margin: '8px 2px' }} />
@@ -1817,11 +1915,11 @@ export const IndustrialHMIPrototype = () => {
                             border: '1px solid rgba(96, 165, 250, 0.3)',
                             cursor: 'help'
                           }}
-                          title={[tag.plant, tag.area, tag.equipment].filter(Boolean).join(' â€º ')}
+                          title={[tag.plant, tag.area, tag.equipment].filter(Boolean).join(' › ')}
                           >
-                            <span style={{ fontSize: '9px' }}>ðŸ“</span>
+                            <span style={{ fontSize: '9px' }}>📍</span>
                             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {[tag.plant, tag.area, tag.equipment].filter(Boolean).join(' â€º ')}
+                              {[tag.plant, tag.area, tag.equipment].filter(Boolean).join(' › ')}
                             </span>
                           </div>
                         )}
@@ -1905,7 +2003,7 @@ export const IndustrialHMIPrototype = () => {
                 }
                 
                 try {
-                  // Group tags by windowId (if set) or unit â€” allows cross-unit mixing per window
+                  // Group tags by windowId (if set) or unit — allows cross-unit mixing per window
                   const tagsByUnit = selectedTags.reduce((acc, tag) => {
                     if (!tag) return acc; // Skip null/undefined tags
                     // Use explicit windowId if tag was dragged/assigned to a window;
@@ -2005,9 +2103,9 @@ export const IndustrialHMIPrototype = () => {
                                 const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
                                 const diffDays = Math.floor(diffHrs / 24);
                                 if (diffDays >= 1) {
-                                  return `CUSTOM (${diffDays} DAY${diffDays > 1 ? 'S' : ''}) âœ“`;
+                                  return `CUSTOM (${diffDays} DAY${diffDays > 1 ? 'S' : ''}) ✓`;
                                 } else {
-                                  return `CUSTOM (${diffHrs} HR${diffHrs > 1 ? 'S' : ''}) âœ“`;
+                                  return `CUSTOM (${diffHrs} HR${diffHrs > 1 ? 'S' : ''}) ✓`;
                                 }
                               }
                             })()}
@@ -2037,7 +2135,7 @@ export const IndustrialHMIPrototype = () => {
                                 fontFamily: 'Consolas, monospace',
                                 marginLeft: '8px'
                               }}>
-                                ðŸ“… {startStr} â†’ {endStr} | {totalPoints.toLocaleString()} pts
+                                📅 {startStr} → {endStr} | {totalPoints.toLocaleString()} pts
                               </span>
                             );
                           })()}
@@ -2069,17 +2167,17 @@ export const IndustrialHMIPrototype = () => {
                             {(() => {
                               if (unit.startsWith('win_')) {
                                 const names = tags.map(t => t.name || t.id).join(', ');
-                                return names || 'â€”';
+                                return names || '—';
                               }
                               const cleanedUnit = unit.replace(/^\d+\s*/, '').trim();
-                              return (cleanedUnit && cleanedUnit !== 'N/A') ? cleanedUnit : 'â€”';
+                              return (cleanedUnit && cleanedUnit !== 'N/A') ? cleanedUnit : '—';
                             })()}
                           </span>
                         </div>
 
-                        {/* Trend Window Target Button â€” click to make this the active drop target */}
+                        {/* Trend Window Target Button — click to make this the active drop target */}
                         <button
-                          title={isActiveTarget ? 'This window is the active target â€” sidebar clicks/drops go here. Click to deactivate.' : 'Click to make this window the active target for sidebar tags & drag-drop'}
+                          title={isActiveTarget ? 'This window is the active target — sidebar clicks/drops go here. Click to deactivate.' : 'Click to make this window the active target for sidebar tags & drag-drop'}
                           onClick={() => setActiveTrendWindowId(prev => prev === unit ? null : unit)}
                           style={{
                             padding: '3px 10px',
@@ -2095,7 +2193,7 @@ export const IndustrialHMIPrototype = () => {
                             transition: 'all 0.15s'
                           }}
                         >
-                          {isActiveTarget ? 'âŠ› SELECTED' : 'âŠ™ TARGET'}
+                          {isActiveTarget ? '⊛ SELECTED' : '⊙ TARGET'}
                         </button>
                         
                         {/* Live / Historian Switch */}
@@ -2106,7 +2204,7 @@ export const IndustrialHMIPrototype = () => {
                               const tagsForUnit = getTagsForWindow(unit);
                               tagsForUnit.forEach(tag => {
                                 if (trendDataRef.current[tag.id]) {
-                                  logDebug(`[Mode Switch] ðŸ—‘ï¸ Clearing cached data for ${tag.id} when switching to LIVE`);
+                                  logDebug(`[Mode Switch] 🗑️ Clearing cached data for ${tag.id} when switching to LIVE`);
                                   delete trendDataRef.current[tag.id];
                                 }
                               });
@@ -2137,7 +2235,7 @@ export const IndustrialHMIPrototype = () => {
                               const tagsForUnit = getTagsForWindow(unit);
                               tagsForUnit.forEach(tag => {
                                 if (trendDataRef.current[tag.id]) {
-                                  logDebug(`[Mode Switch] ðŸ—‘ï¸ Clearing cached data for ${tag.id} when switching to HISTORIAN`);
+                                  logDebug(`[Mode Switch] 🗑️ Clearing cached data for ${tag.id} when switching to HISTORIAN`);
                                   delete trendDataRef.current[tag.id];
                                 }
                               });
@@ -2219,7 +2317,7 @@ export const IndustrialHMIPrototype = () => {
                               }}
                               title={(chartState.customStartDate && chartState.customEndDate) ? 'Custom range active' : 'Set custom date range'}
                             >
-                              {(chartState.customStartDate && chartState.customEndDate) ? 'âœ“ CUSTOM' : 'CUSTOM'}
+                              {(chartState.customStartDate && chartState.customEndDate) ? '✓ CUSTOM' : 'CUSTOM'}
                             </button>
                           </div>
                         )}
@@ -2263,7 +2361,7 @@ export const IndustrialHMIPrototype = () => {
                                 }}
                                 title={`Scroll Left (Older Data) - Step: ${scrollStep} pts`}
                               >
-                                âª
+                                ⏪
                               </button>
                               <button
                                 onClick={() => {
@@ -2303,7 +2401,7 @@ export const IndustrialHMIPrototype = () => {
                                 }}
                                 title={`Scroll Right (Newer Data) - Step: ${scrollStep} pts`}
                               >
-                                â©
+                                ⏩
                               </button>
                             </div>
                           );
@@ -2446,7 +2544,7 @@ export const IndustrialHMIPrototype = () => {
                             const newValue = !isPaused;
                             setTrendsPausedState(prev => ({ ...prev, [unit]: newValue }));
                             trendsPausedRef.current[unit] = newValue;
-                            logInfo(`ðŸŽ¬ Trend [${unit}]`, newValue ? 'PAUSED' : 'RESUMED');
+                            logInfo(`🎬 Trend [${unit}]`, newValue ? 'PAUSED' : 'RESUMED');
                           }}
                           style={{
                             padding: '4px 12px',
@@ -2463,7 +2561,7 @@ export const IndustrialHMIPrototype = () => {
                           }}
                           title={(trendsPausedState[unit] || false) ? `Resume ${unit} Trend` : `Pause ${unit} Trend`}
                         >
-                          {(trendsPausedState[unit] || false) ? 'â–¶' : 'â¸'} {(trendsPausedState[unit] || false) ? 'RESUME' : 'PAUSE'}
+                          {(trendsPausedState[unit] || false) ? '▶' : '⏸'} {(trendsPausedState[unit] || false) ? 'RESUME' : 'PAUSE'}
                         </button>
                         
                         <span style={{ fontSize: '10px', fontFamily: 'Consolas, monospace', color: ISA_COLORS.foreground, opacity: 0.7 }}>UPDATE: 1s</span>
@@ -2539,7 +2637,7 @@ export const IndustrialHMIPrototype = () => {
                             const tagsForUnit = getTagsForWindow(unit);
                             tagsForUnit.forEach(tag => {
                               if (trendDataRef.current[tag.id]) {
-                                logDebug(`[Custom Range] ðŸ—‘ï¸ Clearing cached data for ${tag.id} on CANCEL`);
+                                logDebug(`[Custom Range] 🗑️ Clearing cached data for ${tag.id} on CANCEL`);
                                 delete trendDataRef.current[tag.id];
                               }
                             });
@@ -2587,7 +2685,7 @@ export const IndustrialHMIPrototype = () => {
                         }}
                         title="Toggle Min/Max band display for process variability analysis"
                       >
-                        ðŸ“Š {chartState.showMinMaxBand ? 'HIDE BAND' : 'SHOW BAND'}
+                        📊 {chartState.showMinMaxBand ? 'HIDE BAND' : 'SHOW BAND'}
                       </button>
                     )}
                     
@@ -2808,7 +2906,7 @@ export const IndustrialHMIPrototype = () => {
                                 fontWeight={ISA_101_TREND_CONFIG.typography.fontWeight.bold}
                                 textAnchor="middle"
                               >
-                                {/* Don't show windowId as unit label â€” show actual unit or nothing */}
+                                {/* Don't show windowId as unit label — show actual unit or nothing */}
                                 {unit.startsWith('win_') ? '' : `[${unit.replace(/^\d+\s*/, '').trim()}]`}
                               </text>
                             </g>
@@ -3489,7 +3587,7 @@ export const IndustrialHMIPrototype = () => {
             height: '100%'
           }}>
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {/* ALARMS â€” takes all available space */}
+              {/* ALARMS — takes all available space */}
               <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', border: `1px solid ${ISA_COLORS.border}`, backgroundColor: 'rgba(0,0,0,0.2)' }}>
                 <div style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.8px', color: ISA_COLORS.foreground, borderBottom: `1px solid ${ISA_COLORS.border}`, flexShrink: 0 }}>
                   ALARMS
@@ -3603,7 +3701,7 @@ export const IndustrialHMIPrototype = () => {
               fontWeight: 'bold', 
               fontSize: '14px' 
             }}>
-              ðŸ› DEBUG PANEL - Tag Data Inspector
+              🐛 DEBUG PANEL - Tag Data Inspector
             </span>
             <button
               onClick={() => setShowDebugPanel(false)}
@@ -3629,7 +3727,7 @@ export const IndustrialHMIPrototype = () => {
               marginBottom: '8px',
               fontSize: '12px'
             }}>
-              ðŸ“Š Selected Tags Array ({selectedTags.length} tags)
+              📊 Selected Tags Array ({selectedTags.length} tags)
             </div>
             <div style={{
               backgroundColor: ISA_COLORS.background,
@@ -3658,7 +3756,7 @@ export const IndustrialHMIPrototype = () => {
               marginBottom: '8px',
               fontSize: '12px'
             }}>
-              ðŸ’¾ localStorage Content
+              💾 localStorage Content
             </div>
             <div style={{
               backgroundColor: ISA_COLORS.background,
@@ -3701,7 +3799,7 @@ export const IndustrialHMIPrototype = () => {
               marginBottom: '8px',
               fontSize: '12px'
             }}>
-              ðŸ“ Context Field Validation
+              📍 Context Field Validation
             </div>
             <div style={{
               backgroundColor: ISA_COLORS.background,
@@ -3729,7 +3827,7 @@ export const IndustrialHMIPrototype = () => {
                         color: hasContext ? '#10b981' : '#ef4444',
                         fontWeight: 'bold'
                       }}>
-                        {hasContext ? 'âœ…' : 'âŒ'} {tag.name || tag.id}
+                        {hasContext ? '✅' : '❌'} {tag.name || tag.id}
                       </div>
                       <div style={{ 
                         fontSize: '10px', 
@@ -3756,7 +3854,7 @@ export const IndustrialHMIPrototype = () => {
               marginBottom: '8px',
               fontSize: '12px'
             }}>
-              âš¡ Quick Actions
+              ⚡ Quick Actions
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
@@ -3776,7 +3874,7 @@ export const IndustrialHMIPrototype = () => {
                   fontWeight: 'bold'
                 }}
               >
-                ðŸ—‘ï¸ Clear localStorage
+                🗑️ Clear localStorage
               </button>
               <button
                 onClick={() => {
@@ -3807,14 +3905,14 @@ export const IndustrialHMIPrototype = () => {
                   fontWeight: 'bold'
                 }}
               >
-                ðŸ’¾ Export Debug Data
+                💾 Export Debug Data
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* â”€â”€ Predictive Trend Modal â€” opens when a warning row is clicked â”€â”€ */}
+      {/* ── Predictive Trend Modal — opens when a warning row is clicked ── */}
       {predictiveTrendTag && (
         <PredictiveTrendModal
           tagId={predictiveTrendTag.id}

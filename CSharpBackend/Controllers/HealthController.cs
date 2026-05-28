@@ -117,6 +117,27 @@ public class HealthController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/health/dispatcher — OPC STA Dispatcher metrics
+    /// Returns: threadId, apartment (STA/MTA), queueDepth, maxQueueDepth,
+    ///          operationsProcessed, timeoutCount, state, lastSuccess, lastHeartbeat
+    /// Lock-free: <1ms response. Called by Section H tests.
+    /// </summary>
+    [HttpGet("dispatcher")]
+    public ActionResult<DispatcherHealth> GetDispatcherHealth()
+    {
+        try
+        {
+            var snapshot = _healthService.GetCurrentSnapshot();
+            return Ok(snapshot.Dispatcher);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"❌ Dispatcher health API error: {ex.Message}");
+            return StatusCode(500, new { error = "Failed to retrieve dispatcher health" });
+        }
+    }
+
+    /// <summary>
     /// GET /api/health/resources - System resources health only
     /// </summary>
     [HttpGet("resources")]

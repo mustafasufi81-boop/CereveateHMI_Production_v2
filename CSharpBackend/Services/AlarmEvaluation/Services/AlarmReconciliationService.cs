@@ -1,6 +1,7 @@
 using Npgsql;
 using OpcDaWebBrowser.Services.AlarmEvaluation.Models;
 using OpcDaWebBrowser.Services.HistorianIngest.Config;
+using PlcGateway.Services;
 using System.Globalization;
 
 namespace OpcDaWebBrowser.Services.AlarmEvaluation.Services;
@@ -24,6 +25,7 @@ public sealed class AlarmReconciliationService
 {
     private readonly HistorianConfig _dbConfig;
     private readonly TagValuesPoolService _tagPool;
+    private readonly PlcTagValuesPoolService _plcTagPool;
     private readonly AlarmSetpointCacheService _setpointCache;
     private readonly AlarmStateManager _stateManager;
     private readonly ILogger<AlarmReconciliationService> _logger;
@@ -31,12 +33,14 @@ public sealed class AlarmReconciliationService
     public AlarmReconciliationService(
         HistorianConfig dbConfig,
         TagValuesPoolService tagPool,
+        PlcTagValuesPoolService plcTagPool,
         AlarmSetpointCacheService setpointCache,
         AlarmStateManager stateManager,
         ILogger<AlarmReconciliationService> logger)
     {
         _dbConfig      = dbConfig      ?? throw new ArgumentNullException(nameof(dbConfig));
         _tagPool       = tagPool       ?? throw new ArgumentNullException(nameof(tagPool));
+        _plcTagPool    = plcTagPool    ?? throw new ArgumentNullException(nameof(plcTagPool));
         _setpointCache = setpointCache ?? throw new ArgumentNullException(nameof(setpointCache));
         _stateManager  = stateManager  ?? throw new ArgumentNullException(nameof(stateManager));
         _logger        = logger        ?? throw new ArgumentNullException(nameof(logger));
@@ -69,10 +73,33 @@ public sealed class AlarmReconciliationService
 
         _logger.LogInformation("AlarmReconciliationService: {Count} active alarm rows found", dbRows.Count);
 
-        // Fetch live values for all relevant tag IDs in one call
-        var tagIds   = dbRows.Select(r => r.TagId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Fetch live values for all relevant tag IDs — check OPC pool first, then PLC pool
+        var tagIds    = dbRows.Select(r => r.TagId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var tagValues = _tagPool.GetTagValues(tagIds);
         var valueMap  = tagValues.ToDictionary(v => v.TagId, StringComparer.OrdinalIgnoreCase);
+
+        // For tags not found in OPC pool, check PLC pool and record their source
+        var missingIds = tagIds.Where(id => !valueMap.ContainsKey(id)).ToList();
+        // plcSourceIds: tags confirmed to live in PlcTagValuesPool — set TagSource.Plc on restored state
+        var plcSourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (missingIds.Count > 0)
+        {
+            var plcEntries = _plcTagPool.GetTagValues(missingIds, plcId: null);
+            foreach (var plc in plcEntries)
+            {
+                var tagName = plc.TagName.Length > 0 ? plc.TagName : plc.Address;
+                // Wrap as TagValueCacheEntry so the rest of reconcile logic works uniformly
+                valueMap[tagName] = new TagValueCacheEntry
+                {
+                    TagId     = tagName,
+                    Value     = plc.Value?.ToString() ?? "",
+                    Quality   = plc.ComputedQuality == PlcTagQuality.Good ? "Good" : "Bad",
+                    Timestamp = plc.Timestamp,
+                    UpdatedAt = plc.ComputedQuality == PlcTagQuality.Good ? plc.CachedAt : DateTime.UtcNow.AddSeconds(-60),
+                };
+                plcSourceIds.Add(tagName);
+            }
+        }
 
         var toRestoreActive = new List<AlarmActiveRow>();
         var toMarkRtn       = new List<AlarmActiveRow>();
@@ -115,25 +142,30 @@ public sealed class AlarmReconciliationService
                 toMarkRtn.Add(row);
         }
 
-        // Restore active alarms into memory
+        // Restore active alarms into memory — with correct TagSource so guards never go blind
         foreach (var row in toRestoreActive)
-            RestoreActiveState(row);
+        {
+            var source = plcSourceIds.Contains(row.TagId) ? TagSource.Plc : TagSource.OpcDa;
+            RestoreActiveState(row, source);
+        }
 
         // Bulk RTN update in one transaction
         var rtnCount = 0;
         if (toMarkRtn.Count > 0)
-            rtnCount = await BulkMarkRtnAsync(toMarkRtn, ct);
+            rtnCount = await BulkMarkRtnAsync(toMarkRtn, plcSourceIds, ct);
 
+        var plcRestoredCount = toRestoreActive.Count(r => plcSourceIds.Contains(r.TagId));
+        var opcRestoredCount = toRestoreActive.Count - plcRestoredCount;
         _logger.LogInformation(
-            "AlarmReconciliationService: complete — restored_active={A}, auto_rtn={R}, opc_offline_kept={O}",
-            toRestoreActive.Count - opcOfflineKept + opcOfflineKept, rtnCount, opcOfflineKept);
+            "AlarmReconciliationService: complete — restored_active={A} (opc={O}, plc={P}), auto_rtn={R}, offline_kept={Off}",
+            toRestoreActive.Count, opcRestoredCount, plcRestoredCount, rtnCount, opcOfflineKept);
     }
 
     // =========================================================
     // PRIVATE HELPERS
     // =========================================================
 
-    private void RestoreActiveState(AlarmActiveRow row)
+    private void RestoreActiveState(AlarmActiveRow row, TagSource source = TagSource.Unknown)
     {
         var state = new AlarmRuntimeState
         {
@@ -141,6 +173,7 @@ public sealed class AlarmReconciliationService
             TagId          = row.TagId,
             Level          = row.Level,
             State          = ParseAlarmState(row.AlarmStateStr),
+            Source         = source,     // directed pool lookup — no blind search after restart
             OccurrenceId   = row.OccurrenceId,
             InstanceSeq    = row.InstanceSeq,
             CurrentEventId = row.CurrentEventId,
@@ -152,9 +185,12 @@ public sealed class AlarmReconciliationService
             RtnAt          = row.RtnAt,
         };
         _stateManager.RestoreState(state);
+        _logger.LogInformation(
+            "AlarmReconciliationService: restored {Key} state={State} source={Source}",
+            row.AlarmKey, state.State, source);
     }
 
-    private async Task<int> BulkMarkRtnAsync(List<AlarmActiveRow> rows, CancellationToken ct)
+    private async Task<int> BulkMarkRtnAsync(List<AlarmActiveRow> rows, HashSet<string> plcSourceIds, CancellationToken ct)
     {
         try
         {
@@ -184,12 +220,14 @@ public sealed class AlarmReconciliationService
                 {
                     count++;
                     // Restore in memory as RTN_UNACK so operator can acknowledge
+                    var source = plcSourceIds.Contains(row.TagId) ? TagSource.Plc : TagSource.OpcDa;
                     _stateManager.RestoreState(new AlarmRuntimeState
                     {
                         AlarmKey       = row.AlarmKey,
                         TagId          = row.TagId,
                         Level          = row.Level,
                         State          = AlarmState4.RtnUnack,
+                        Source         = source,   // directed pool lookup — no blind search after restart
                         OccurrenceId   = row.OccurrenceId,
                         InstanceSeq    = row.InstanceSeq,
                         CurrentEventId = row.CurrentEventId,

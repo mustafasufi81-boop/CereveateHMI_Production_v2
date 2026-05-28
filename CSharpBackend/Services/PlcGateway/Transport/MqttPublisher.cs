@@ -97,6 +97,10 @@ public class MqttPublisher : IDisposable
                 _isConnected = true;
                 _backoffMs = 500;   // Reset backoff on success
                 _logger.LogInformation("[MQTT PUB] Connected to broker successfully");
+                
+                // S1-11: Publish "birth" message on successful connection
+                await PublishBirthMessageAsync(ct);
+                
                 return true;
             }
 
@@ -126,6 +130,10 @@ public class MqttPublisher : IDisposable
         {
             if (_stream != null && _isConnected)
             {
+                // S1-11: Publish "death" message on graceful shutdown
+                await PublishDeathMessageAsync();
+                await Task.Delay(100); // Give time for message to send
+                
                 // MQTT DISCONNECT packet
                 await _stream.WriteAsync(new byte[] { 0xE0, 0x00 });
             }
@@ -489,6 +497,12 @@ public class MqttPublisher : IDisposable
         
         // Connect flags
         byte connectFlags = 0x02; // Clean session
+        
+        // S1-11: Add Last Will Testament (LWT) flag
+        connectFlags |= 0x04; // Will flag
+        connectFlags |= 0x00; // Will QoS = 0
+        connectFlags |= 0x00; // Will Retain = false
+        
         if (!string.IsNullOrEmpty(_config.Username))
         {
             connectFlags |= 0x80; // Username flag
@@ -511,6 +525,26 @@ public class MqttPublisher : IDisposable
         payload.Add((byte)(clientIdBytes.Length >> 8));
         payload.Add((byte)(clientIdBytes.Length & 0xFF));
         payload.AddRange(clientIdBytes);
+        
+        // S1-11: Last Will Testament (LWT) - sent when connection drops unexpectedly
+        var willTopic = $"plc/gateway/{_config.ClientId}/status";
+        var willMessage = JsonSerializer.Serialize(new
+        {
+            clientId = _config.ClientId,
+            status = "offline",
+            timestamp = DateTime.UtcNow,
+            reason = "unexpected_disconnect"
+        });
+        
+        var willTopicBytes = Encoding.UTF8.GetBytes(willTopic);
+        payload.Add((byte)(willTopicBytes.Length >> 8));
+        payload.Add((byte)(willTopicBytes.Length & 0xFF));
+        payload.AddRange(willTopicBytes);
+        
+        var willMessageBytes = Encoding.UTF8.GetBytes(willMessage);
+        payload.Add((byte)(willMessageBytes.Length >> 8));
+        payload.Add((byte)(willMessageBytes.Length & 0xFF));
+        payload.AddRange(willMessageBytes);
         
         // Username
         if (!string.IsNullOrEmpty(_config.Username))
@@ -776,6 +810,63 @@ public class MqttPublisher : IDisposable
             }
 
             batchIndex++;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // S1-11: BIRTH/DEATH MESSAGES (Last Will Testament)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Publish "birth" message when connection established
+    /// Lets clients know gateway is online
+    /// </summary>
+    private async Task PublishBirthMessageAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var topic = $"plc/gateway/{_config.ClientId}/status";
+            var message = JsonSerializer.Serialize(new
+            {
+                clientId = _config.ClientId,
+                status = "online",
+                timestamp = DateTime.UtcNow,
+                message = "PLC Gateway connected"
+            });
+            
+            await PublishToTopicAsync(topic, message, ct, retain: true);
+            _logger.LogInformation("[MQTT LWT] Published birth message");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MQTT LWT] Failed to publish birth message");
+        }
+    }
+
+    /// <summary>
+    /// Publish "death" message on graceful shutdown
+    /// Lets clients know gateway is going offline intentionally
+    /// </summary>
+    private async Task PublishDeathMessageAsync()
+    {
+        try
+        {
+            var topic = $"plc/gateway/{_config.ClientId}/status";
+            var message = JsonSerializer.Serialize(new
+            {
+                clientId = _config.ClientId,
+                status = "offline",
+                timestamp = DateTime.UtcNow,
+                reason = "graceful_shutdown"
+            });
+            
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            await PublishToTopicAsync(topic, message, cts.Token, retain: true);
+            _logger.LogInformation("[MQTT LWT] Published death message");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[MQTT LWT] Failed to publish death message");
         }
     }
 

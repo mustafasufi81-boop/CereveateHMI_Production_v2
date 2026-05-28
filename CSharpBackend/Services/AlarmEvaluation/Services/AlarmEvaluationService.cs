@@ -37,6 +37,15 @@ public sealed class AlarmEvaluationService : BackgroundService
     private MqttPublisher? _mqttPublisher;
     private long _evaluationCycles;
 
+    // ── Re-raise suppression (CHANGE 4) ──────────────────────────────────────────────
+    // When an alarm is CLEARED, add alarmKey + timestamp here. If the evaluator
+    // tries to re-raise the same key within RecentlyClearedWindowMs (3 seconds),
+    // the raise is suppressed. This prevents the confusing CLEARED+UNACK pair
+    // that appears in historian_events immediately after an operator clear.
+    private readonly ConcurrentDictionary<string, DateTime> _recentlyCleared =
+        new(StringComparer.OrdinalIgnoreCase);
+    private const int RecentlyClearedWindowMs = 3_000;
+
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -145,17 +154,20 @@ public sealed class AlarmEvaluationService : BackgroundService
         // MERGE: also check PLC pool for any alarm tags not found in OPC DA pool
         // PLC tags (TURBINE_LOADMW, BEARING_VIB_*, etc.) live in PlcTagValuesPoolService
         var opcTagIds = new HashSet<string>(tagValues.Select(t => t.TagId), StringComparer.OrdinalIgnoreCase);
+        // plcTagIds: tags confirmed to come from the PLC pool — used to set TagSource at raise-time
+        var plcTagIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var missingIds = alarmTagIds.Where(id => !opcTagIds.Contains(id)).ToList();
         if (missingIds.Count > 0)
         {
             var plcEntries = _plcTagPool.GetTagValues(missingIds, plcId: null);
             foreach (var plc in plcEntries)
             {
+                var tagName  = plc.TagName.Length > 0 ? plc.TagName : plc.Address;
                 var valueStr = plc.Value?.ToString() ?? "";
                 var quality  = plc.Quality == PlcTagQuality.Good ? "Good" : "Bad";
                 tagValues.Add(new TagValueCacheEntry
                 {
-                    TagId     = plc.TagName.Length > 0 ? plc.TagName : plc.Address,
+                    TagId     = tagName,
                     Value     = valueStr,
                     Quality   = quality,
                     Timestamp = plc.Timestamp,
@@ -163,6 +175,7 @@ public sealed class AlarmEvaluationService : BackgroundService
                               ? DateTime.UtcNow.AddSeconds(-60)  // force IsStale=true for bad-quality tags
                               : plc.CachedAt
                 });
+                plcTagIds.Add(tagName);   // remember: this tag lives in the PLC pool
             }
         }
 
@@ -185,17 +198,22 @@ public sealed class AlarmEvaluationService : BackgroundService
             var setpoint = _setpointCache.GetSetpoint(entry.TagId);
             if (setpoint == null) continue;
 
+            // Determine which pool this tag comes from — used to set TagSource on AlarmRuntimeState
+            // so state-transition guards can do a directed (non-blind) live-value lookup.
+            var tagSource = plcTagIds.Contains(entry.TagId) ? TagSource.Plc : TagSource.OpcDa;
+
             // Convert to DateTimeOffset safely: DateTime.Now (Kind=Local) from pool must be
             // converted to UTC first — DateTimeOffset(localDt, TimeSpan.Zero) throws ArgumentException.
             var ts = new DateTimeOffset(entry.Timestamp.ToUniversalTime());
 
-            await EvaluateTagAsync(entry.TagId, val, setpoint, ts, allStates, ct);
+            await EvaluateTagAsync(entry.TagId, val, setpoint, ts, tagSource, allStates, ct);
         }
     }
 
     private async Task EvaluateTagAsync(
         string tagId, double value, AlarmSetpoint setpoint,
-        DateTimeOffset ts, IReadOnlyDictionary<string, AlarmRuntimeState> allStates,
+        DateTimeOffset ts, TagSource tagSource,
+        IReadOnlyDictionary<string, AlarmRuntimeState> allStates,
         CancellationToken ct)
     {
         foreach (var level in _allLevels)
@@ -214,6 +232,24 @@ public sealed class AlarmEvaluationService : BackgroundService
 
                 if (!isAlreadyActive)
                 {
+                    // ── Re-raise suppression (CHANGE 4) ─────────────────────────────────
+                    // If this alarm was just cleared (within RecentlyClearedWindowMs),
+                    // suppress the re-raise to avoid the phantom CLEARED+UNACK pair.
+                    if (_recentlyCleared.TryGetValue(alarmKey, out var clearedAt))
+                    {
+                        var age = (DateTime.UtcNow - clearedAt).TotalMilliseconds;
+                        if (age < RecentlyClearedWindowMs)
+                        {
+                            _logger.LogDebug(
+                                "EvaluateTagAsync: suppressing re-raise for {Key} ({Age:F0}ms after clear)",
+                                alarmKey, age);
+                            continue;
+                        }
+                        // Window expired — remove stale entry
+                        _recentlyCleared.TryRemove(alarmKey, out _);
+                    }
+                    // ────────────────────────────────────────────────────────────────
+
                     // Check ISA-18.2 suppression (H suppressed by HH, L by LL)
                     if (AlarmSuppressionEngine.IsSuppressed(level, tagId, allStates))
                     {
@@ -226,7 +262,8 @@ public sealed class AlarmEvaluationService : BackgroundService
                     {
                         await _stateManager.RaiseAsync(tagId, level, value,
                             GetSetpointForLevel(level, setpoint),
-                            setpoint.AlarmPriority, ts, ct);
+                            setpoint.AlarmPriority, ts, ct,
+                            source: tagSource);   // directed pool — no blind search
                     }
                 }
                 // If already active — no action (alarm stays until RTN)
@@ -307,6 +344,15 @@ public sealed class AlarmEvaluationService : BackgroundService
 
     private void OnTransitionOccurred(object? sender, AlarmTransitionEvent evt)
     {
+        // CHANGE 4: record cleared alarms to suppress immediate re-raise
+        if (evt.ToState == AlarmState4.None)
+        {
+            _recentlyCleared[evt.AlarmKey] = DateTime.UtcNow;
+            _logger.LogDebug(
+                "OnTransitionOccurred: {Key} CLEARED — re-raise suppressed for {Window}ms",
+                evt.AlarmKey, RecentlyClearedWindowMs);
+        }
+
         if (_mqttPublisher == null) return;
         _ = PublishTransitionAsync(evt);
     }
@@ -435,13 +481,50 @@ public sealed class AlarmEvaluationService : BackgroundService
         var poolEntries = _tagPool.GetTagValues(alarmTagIds);
         var (raised, acked, rtn, cleared) = _stateManager.GetCounters();
 
+        // Build OPC map, then fill missing from PLC pool
+        var opcMap = poolEntries.ToDictionary(e => e.TagId, StringComparer.OrdinalIgnoreCase);
+        var missingForDiag = alarmTagIds.Where(id => !opcMap.ContainsKey(id)).ToList();
+        var plcMapForDiag  = new Dictionary<string, PlcTagValueCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        if (missingForDiag.Count > 0)
+        {
+            var plcEntries = _plcTagPool.GetTagValues(missingForDiag, plcId: null);
+            foreach (var p in plcEntries)
+            {
+                var name = p.TagName.Length > 0 ? p.TagName : p.Address;
+                plcMapForDiag[name] = p;
+            }
+        }
+
         var tagDetails = alarmTagIds.Select(id =>
         {
-            var pool    = poolEntries.FirstOrDefault(e => string.Equals(e.TagId, id, StringComparison.OrdinalIgnoreCase));
-            var sp      = _setpointCache.GetSetpoint(id);
+            var opcEntry = opcMap.TryGetValue(id, out var oe) ? oe : null;
+            var plcEntry = plcMapForDiag.TryGetValue(id, out var pe) ? pe : null;
+            var sp       = _setpointCache.GetSetpoint(id);
+
+            // Determine effective value and source for this tag
+            string? effectiveValue   = null;
+            string? effectiveQuality = null;
+            bool?   effectiveStale   = null;
+            var     tagSource        = TagSource.Unknown;
+
+            if (opcEntry != null)
+            {
+                effectiveValue   = opcEntry.Value;
+                effectiveQuality = opcEntry.Quality;
+                effectiveStale   = opcEntry.IsStale;
+                tagSource        = TagSource.OpcDa;
+            }
+            else if (plcEntry != null)
+            {
+                effectiveValue   = plcEntry.Value?.ToString();
+                effectiveQuality = plcEntry.ComputedQuality == PlcTagQuality.Good ? "Good" : "Bad";
+                effectiveStale   = plcEntry.ComputedQuality != PlcTagQuality.Good;
+                tagSource        = TagSource.Plc;
+            }
 
             double? numVal = null;
-            if (pool != null && double.TryParse(pool.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
+            if (effectiveValue != null &&
+                double.TryParse(effectiveValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
                 numVal = d;
 
             string? determinedLevel = null;
@@ -464,28 +547,30 @@ public sealed class AlarmEvaluationService : BackgroundService
 
             return new AlarmTagDiag
             {
-                TagId            = id,
-                InPool           = pool != null,
-                PoolValue        = pool?.Value,
-                PoolQuality      = pool?.Quality,
-                IsStale          = pool?.IsStale,
-                IsGoodQuality    = pool != null && IsGoodQuality(pool.Quality),
-                NumericValue     = numVal,
-                DeterminedLevel  = determinedLevel,
-                HhLimit          = sp?.HhLimit,
-                HLimit           = sp?.HLimit,
-                LLimit           = sp?.LLimit,
-                LlLimit          = sp?.LlLimit,
-                AlarmDeadband    = sp?.AlarmDeadband,
+                TagId              = id,
+                TagSource          = tagSource.ToString(),
+                InPool             = opcEntry != null || plcEntry != null,
+                PoolValue          = effectiveValue,
+                PoolQuality        = effectiveQuality,
+                IsStale            = effectiveStale,
+                IsGoodQuality      = effectiveQuality is "Good" or "GOOD",
+                NumericValue       = numVal,
+                DeterminedLevel    = determinedLevel,
+                HhLimit            = sp?.HhLimit,
+                HLimit             = sp?.HLimit,
+                LLimit             = sp?.LLimit,
+                LlLimit            = sp?.LlLimit,
+                AlarmDeadband      = sp?.AlarmDeadband,
                 RuntimeActiveLevel = activeState?.State.ToString(),
-                RuntimeEventId   = activeState?.CurrentEventId,
+                RuntimeEventId     = activeState?.CurrentEventId,
+                RuntimeSource      = activeState?.Source.ToString(),
             };
         }).ToList();
 
         return new AlarmEvalDiagnostics
         {
             ServiceEnabled     = _alarmConfig.Enabled,
-            LastDbError        = "",  // Moved to AlarmStateManager — logged there
+            LastDbError        = "",
             SetpointCacheCount = _setpointCache.Count,
             SetpointCacheInit  = _setpointCache.IsInitialized,
             EvaluationCycles   = Interlocked.Read(ref _evaluationCycles),
@@ -495,6 +580,7 @@ public sealed class AlarmEvaluationService : BackgroundService
             CircuitOpen        = _stateManager.CircuitOpen,
             MaxDbFailures      = _alarmConfig.MaxConsecutiveDbFailures,
             TagPoolTotalCount  = _tagPool.GetCachedTagCount(),
+            PlcPoolTagCount    = _plcTagPool.GetCachedTagCount(),
             Tags               = tagDetails,
         };
     }
@@ -524,7 +610,8 @@ public sealed class AlarmEvalDiagnostics
     public int    ConsecutiveDbFail  { get; init; }
     public bool   CircuitOpen        { get; init; }
     public int    MaxDbFailures      { get; init; }
-    public int    TagPoolTotalCount  { get; init; }
+    public int    TagPoolTotalCount  { get; init; }   // OPC DA pool
+    public int    PlcPoolTagCount    { get; init; }   // PLC pool
     public string LastDbErrorContext { get; init; } = "";
     public List<AlarmTagDiag> Tags   { get; init; } = [];
 }
@@ -532,6 +619,8 @@ public sealed class AlarmEvalDiagnostics
 public sealed class AlarmTagDiag
 {
     public string  TagId              { get; init; } = "";
+    /// <summary>Which pool this tag's live value comes from: OpcDa, Plc, or Unknown.</summary>
+    public string  TagSource          { get; init; } = "Unknown";
     public bool    InPool             { get; init; }
     public string? PoolValue          { get; init; }
     public string? PoolQuality        { get; init; }
@@ -546,4 +635,6 @@ public sealed class AlarmTagDiag
     public double? AlarmDeadband      { get; init; }
     public string? RuntimeActiveLevel { get; init; }
     public long?   RuntimeEventId     { get; init; }
+    /// <summary>TagSource stored on the live AlarmRuntimeState (set at raise/restore time).</summary>
+    public string? RuntimeSource      { get; init; }
 }

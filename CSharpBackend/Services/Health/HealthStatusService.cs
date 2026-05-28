@@ -13,6 +13,7 @@ public interface IHealthStatusService
     void UpdateSpoolHealth(SpoolHealth health);
     void UpdateArchiverHealth(ArchiverHealth health);
     void UpdateResourceHealth(ResourceHealth health);
+    void UpdateDispatcherHealth(DispatcherHealth health);
 }
 
 public class HealthStatusService : IHealthStatusService
@@ -25,6 +26,7 @@ public class HealthStatusService : IHealthStatusService
     private volatile SpoolHealth _spoolHealth = new();
     private volatile ArchiverHealth _archiverHealth = new();
     private volatile ResourceHealth _resourceHealth = new();
+    private volatile DispatcherHealth _dispatcherHealth = new();
     
     private volatile int _activeAlerts = 0;
     private volatile int _warningCount = 0;
@@ -83,6 +85,7 @@ public class HealthStatusService : IHealthStatusService
             Spool = spool,
             Archiver = archiver,
             Resources = resources,
+            Dispatcher = _dispatcherHealth,
             ActiveAlerts = _activeAlerts,
             WarningCount = _warningCount,
             ErrorCount = _errorCount
@@ -149,6 +152,16 @@ public class HealthStatusService : IHealthStatusService
     {
         _resourceHealth = health;
         RecalculateAlerts();
+    }
+
+    /// <summary>
+    /// Update dispatcher health (called by OpcDaService after each dispatcher op, or on a timer).
+    /// Lock-free: just swaps the volatile reference.
+    /// </summary>
+    public void UpdateDispatcherHealth(DispatcherHealth health)
+    {
+        _dispatcherHealth = health;
+        // No alert recalc needed — dispatcher is informational only at this stage.
     }
 
     /// <summary>

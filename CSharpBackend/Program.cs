@@ -44,6 +44,9 @@ if (!createdNew)
 
 var builder = WebApplication.CreateBuilder(args);
 
+// S1-8: Load environment variables (for credentials)
+builder.Configuration.AddEnvironmentVariables();
+
 // Load configuration (optional: true so app doesn't crash if file missing)
 builder.Configuration.AddJsonFile("logging-config.json", optional: true, reloadOnChange: true);
 
@@ -91,6 +94,9 @@ builder.Services.AddSession(options =>
 
 // Register OPC services
 builder.Services.AddSingleton<CredentialEncryptionService>();
+// Permanent STA thread dispatcher — ALL OPC DA COM calls route through this.
+// Must be registered before OpcDaService so it can be injected into it.
+builder.Services.AddSingleton<OpcStaDispatcher>();
 builder.Services.AddSingleton<OpcDaService>();
 builder.Services.AddSingleton<OpcServerDiscovery>();
 builder.Services.AddSingleton<LoggingConfigService>();
@@ -98,7 +104,7 @@ builder.Services.AddSingleton<LogFileReaderService>();
 builder.Services.AddSingleton<TrendDataService>();
 builder.Services.AddSingleton<AuthenticationService>();
 builder.Services.AddSingleton<LogBackupService>(); // Register as singleton for API access
-builder.Services.AddSingleton<DataLoggingService>();
+builder.Services.AddHostedService<LiveTagCacheService>();
 // builder.Services.AddSingleton<ArchiveMonitoringService>(); // SAFE monitoring service (read-only)
 
 // ===== HEALTH MONITORING SYSTEM =====
@@ -106,14 +112,14 @@ builder.Services.AddSingleton<IHealthStatusService, HealthStatusService>();
 builder.Services.AddHostedService<ResourceMonitor>();
 // ===== END HEALTH MONITORING SYSTEM =====
 
-// Tag Values Pool Service (shared cache for Parquet + PostgreSQL)
+// Tag Values Pool Service (shared cache for alarms, interlocks, historian monitor)
 builder.Services.AddSingleton<TagValuesPoolService>();
 
 // Seed ServerProgId + MonitoredTags from tag_master on first boot (runs before OpcAutoConnectService)
 builder.Services.AddHostedService<StartupTagSeedService>();
 builder.Services.AddHostedService<OpcAutoConnectService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<LogBackupService>()); // Use same instance
-builder.Services.AddHostedService(provider => provider.GetRequiredService<DataLoggingService>());
+// LiveTagCacheService registered above via AddHostedService<LiveTagCacheService>()
 // builder.Services.AddHostedService<StressTestHostedService>();
 
 // ===== HISTORIAN INGEST SYSTEM =====
@@ -154,6 +160,10 @@ builder.Services.AddSingleton(sp =>
     var cs = builder.Configuration.GetConnectionString("PlcGateway")
               ?? builder.Configuration.GetConnectionString("Historian")
               ?? throw new InvalidOperationException("No PlcGateway connection string found");
+    
+    // S1-8: Replace environment variable placeholders in connection string
+    cs = ReplaceEnvironmentVariables(cs);
+    
     return NpgsqlDataSource.Create(cs);
 });
 
@@ -162,6 +172,42 @@ builder.Services.AddPlcGateway();
 builder.Services.AddHostedService<PlcGatewayHostedService>(); // Load PLC configs from DB
 Console.WriteLine("[STARTUP] PLC Gateway enabled (full mode with background services)");
 // ===== END PLC GATEWAY SYSTEM =====
+
+// ===== ALARM EVALUATION SYSTEM =====
+// Bind AlarmEvaluationConfig from appsettings.json section "AlarmEvaluation"
+builder.Services.AddSingleton(sp =>
+{
+    var cfg = new OpcDaWebBrowser.Services.AlarmEvaluation.Config.AlarmEvaluationConfig();
+    builder.Configuration.GetSection(
+        OpcDaWebBrowser.Services.AlarmEvaluation.Config.AlarmEvaluationConfig.SectionName).Bind(cfg);
+    Console.WriteLine($"[CONFIG] AlarmEvaluation: Enabled={cfg.Enabled}, IntervalMs={cfg.EvaluationIntervalMs}");
+    return cfg;
+});
+// Bind OpcMqttTransportConfig (used by AlarmEvaluationService for MQTT publish)
+builder.Services.AddSingleton(sp =>
+{
+    var cfg = new PlcGateway.Transport.OpcMqttTransportConfig();
+    builder.Configuration.GetSection("OpcMqttTransport").Bind(cfg);
+    return cfg;
+});
+builder.Services.AddSingleton<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmSetpointCacheService>();
+builder.Services.AddSingleton<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmStateManager>(sp =>
+    new OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmStateManager(
+        sp.GetRequiredService<OpcDaWebBrowser.Services.HistorianIngest.Config.HistorianConfig>(),
+        sp.GetRequiredService<OpcDaWebBrowser.Services.AlarmEvaluation.Config.AlarmEvaluationConfig>(),
+        sp.GetRequiredService<ILogger<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmStateManager>>(),
+        sp.GetService<OpcDaWebBrowser.Services.TagValuesPoolService>(),        // OPC DA pool
+        sp.GetService<PlcGateway.Services.PlcTagValuesPoolService>()           // PLC pool (VYAN tags)
+    ));
+builder.Services.AddSingleton<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmDelayTracker>();
+builder.Services.AddSingleton<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmReconciliationService>();
+builder.Services.AddSingleton<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmEvaluationService>();
+builder.Services.AddHostedService(sp =>
+    sp.GetRequiredService<OpcDaWebBrowser.Services.AlarmEvaluation.Services.AlarmEvaluationService>());
+// InterlockEvaluationService parked — not in current development scope
+// builder.Services.AddHostedService<OpcDaWebBrowser.Services.AlarmEvaluation.Services.InterlockEvaluationService>();
+Console.WriteLine("[STARTUP] Alarm Evaluation System registered");
+// ===== END ALARM EVALUATION SYSTEM =====
 
 // Add CORS for SignalR
 builder.Services.AddCors(options =>
@@ -292,6 +338,10 @@ finally
 }
 catch (Exception ex)
 {
+    // Log to Serilog for persistence
+    Log.Fatal(ex, "Application crashed with fatal error");
+    
+    // Keep console output for user visibility
     Console.ForegroundColor = ConsoleColor.Red;
     Console.WriteLine();
     Console.WriteLine("██████████████████████████████████████████");
@@ -302,23 +352,37 @@ catch (Exception ex)
     Console.WriteLine();
     Console.WriteLine($"ERROR: {ex.Message}");
     Console.WriteLine();
-    Console.WriteLine("STACK TRACE:");
-    Console.WriteLine(ex.StackTrace);
-    Console.WriteLine();
-    if (ex.InnerException != null)
-    {
-        Console.WriteLine("INNER EXCEPTION:");
-        Console.WriteLine(ex.InnerException.Message);
-        Console.WriteLine(ex.InnerException.StackTrace);
-    }
-    Console.ResetColor();
-    Console.WriteLine();
     Console.WriteLine("Application will exit in 5 seconds...");
+    Console.ResetColor();
     await Task.Delay(5000);
     return 1;
 }
 
 return 0;
+
+// ═══════════════════════════════════════════════════════════════════
+// S1-8: ENVIRONMENT VARIABLE SUBSTITUTION
+// ═══════════════════════════════════════════════════════════════════
+
+static string ReplaceEnvironmentVariables(string input)
+{
+    // Replace ${ENV_VAR} placeholders with actual environment variable values
+    var pattern = @"\$\{([^}]+)\}";
+    return System.Text.RegularExpressions.Regex.Replace(input, pattern, match =>
+    {
+        var envVar = match.Groups[1].Value;
+        var value = Environment.GetEnvironmentVariable(envVar);
+        
+        if (string.IsNullOrEmpty(value))
+        {
+            Log.Warning("Environment variable {EnvVar} not set, using placeholder", envVar);
+            Console.WriteLine($"[WARNING] Environment variable '{envVar}' not set, using placeholder");
+            return match.Value; // Keep placeholder if not set
+        }
+        
+        return value;
+    });
+}
 
 static string GetLocalIPAddress()
 {

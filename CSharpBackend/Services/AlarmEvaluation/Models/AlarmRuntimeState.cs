@@ -1,6 +1,21 @@
 namespace OpcDaWebBrowser.Services.AlarmEvaluation.Models;
 
 /// <summary>
+/// Identifies which data pool a tag's live value comes from.
+/// Set at raise-time from the evaluation cycle, which already knows the source.
+/// Used by AlarmStateManager to do a DIRECTED (non-blind) pool lookup in guards.
+/// </summary>
+public enum TagSource
+{
+    /// <summary>Source unknown — guards will try both pools (safe fallback).</summary>
+    Unknown = 0,
+    /// <summary>Tag is served by OPC DA — TagValuesPoolService.</summary>
+    OpcDa = 1,
+    /// <summary>Tag is served by a PLC worker — PlcTagValuesPoolService.</summary>
+    Plc = 2,
+}
+
+/// <summary>
 /// ISA-18.2 4-state alarm lifecycle (Phase 1).
 /// CLEARED is terminal — when CLEARED the AlarmRuntimeState is removed from memory and the
 /// alarm_active row is deleted from the DB. No 'Cleared' enum value needed here.
@@ -45,6 +60,14 @@ public sealed class AlarmRuntimeState
 
     public required string TagId { get; init; }
     public required AlarmLevel Level { get; init; }
+
+    /// <summary>
+    /// Which data pool this tag's live value comes from.
+    /// Populated by AlarmEvaluationService.RaiseAsync() so that state-transition guards
+    /// (AcknowledgeAsync, ClearAsync, MarkRtnAsync) can do a directed pool lookup
+    /// instead of a blind dual-pool search.
+    /// </summary>
+    public TagSource Source { get; set; } = TagSource.Unknown;
 
     /// <summary>Current ISA-18.2 4-state value.</summary>
     public AlarmState4 State { get; set; } = AlarmState4.None;

@@ -28,12 +28,30 @@ class HistoricalDataService:
                 {host, port, database, user, password}
         """
         self.db_config = db_config
-        self.connection = None
+        self._connection = None
+
+    @property
+    def connection(self):
+        """Always return a live connection, auto-reconnecting if needed.
         
+        psycopg2 sets connection.closed to non-zero when the server drops
+        the connection, so no SELECT 1 round-trip is required.
+        """
+        try:
+            if self._connection is None or self._connection.closed:
+                self.connect()
+        except Exception:
+            pass
+        return self._connection
+
+    @connection.setter
+    def connection(self, value):
+        self._connection = value
+
     def connect(self):
         """Establish database connection"""
         try:
-            self.connection = psycopg2.connect(
+            self._connection = psycopg2.connect(
                 host=self.db_config['host'],
                 port=self.db_config['port'],
                 database=self.db_config['database'],
@@ -41,7 +59,7 @@ class HistoricalDataService:
                 password=self.db_config['password'],
                 cursor_factory=RealDictCursor
             )
-            with self.connection.cursor() as cursor:
+            with self._connection.cursor() as cursor:
                 cursor.execute("SET TIME ZONE 'Asia/Kolkata'")
             logger.info(f"✅ Connected to PostgreSQL: {self.db_config['database']}")
             logger.info("🕒 PostgreSQL session timezone set to Asia/Kolkata")
@@ -52,15 +70,8 @@ class HistoricalDataService:
             return False
     
     def _ensure_connection(self):
-        """Auto-connect / reconnect if needed"""
-        try:
-            if self.connection is None or self.connection.closed:
-                return self.connect()
-            # Test connection is still alive
-            self.connection.cursor().execute('SELECT 1')
-            return True
-        except Exception:
-            return self.connect()
+        """Auto-connect / reconnect if needed (delegates to property)."""
+        return self.connection is not None
 
     def disconnect(self):
         """Close database connection"""

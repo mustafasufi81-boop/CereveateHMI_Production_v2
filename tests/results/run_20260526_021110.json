@@ -1,0 +1,248 @@
+{
+  "run_id": "20260526_021110",
+  "timestamp": "2026-05-25T20:41:10.603053Z",
+  "mode": "quick",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T20:41:10.603053Z",
+    "memory_rss_mb": 31.9,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T20:42:15.973272Z",
+    "memory_rss_mb": 36.2,
+    "thread_count": 4,
+    "handle_count": 242,
+    "delta_memory_rss_mb": 4.3,
+    "delta_thread_count": 0,
+    "delta_handle_count": 44
+  },
+  "sections": {
+    "A": {
+      "passed": 10,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "A1 backend+OPC",
+          "passed": true,
+          "message": "HTTP 200, OPC=connected, tagCount=27"
+        },
+        {
+          "id": "A2 endpoint /status",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /values",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /servers",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /tags",
+          "passed": true,
+          "message": "HTTP 404 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /health",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A2 endpoint /swagger",
+          "passed": true,
+          "message": "HTTP 200 \u2014 ok"
+        },
+        {
+          "id": "A3 values shape",
+          "passed": true,
+          "message": "tagCount=27 (wrapped response)"
+        },
+        {
+          "id": "A4 status fields",
+          "passed": true,
+          "message": "connected=True, tagCount=True, serverName=True, lastUpdate=True"
+        },
+        {
+          "id": "A5 servers list",
+          "passed": true,
+          "message": "3 server(s) listed"
+        }
+      ]
+    },
+    "B": {
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "B1 pool freshness",
+          "passed": true,
+          "message": "median_age=-0ms, max_age=-0ms, stale_events=0"
+        },
+        {
+          "id": "B2 tagCount stable",
+          "passed": true,
+          "message": "min=27, max=27, drops_below_27=0 (out of 100 reads)"
+        },
+        {
+          "id": "B3 pool 30s sustained",
+          "passed": true,
+          "message": "Empty windows: 0/6  (0 = pool always populated)"
+        }
+      ]
+    },
+    "C": {
+      "passed": 6,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "C1 no permanent stop",
+          "passed": true,
+          "message": "No permanent _reconnect_stopped=True found \u2705"
+        },
+        {
+          "id": "C2 backoff schedule",
+          "passed": true,
+          "message": "_backoff_delays present=True, values [5,10,30,60] present=True"
+        },
+        {
+          "id": "C3 method + random",
+          "passed": true,
+          "message": "method=True, import_random=True, jitter=True"
+        },
+        {
+          "id": "C4 no loop_stop in disconnect",
+          "passed": true,
+          "message": "loop_stop() NOT called in _on_disconnect \u2705"
+        },
+        {
+          "id": "C5 retry thread spawned",
+          "passed": true,
+          "message": "_reconnect_thread spawned in _on_disconnect \u2705"
+        },
+        {
+          "id": "C6 backoff math",
+          "passed": true,
+          "message": "Backoff schedule: 0\u21925s, 1\u219210s, 2\u219230s, 3+\u219260s \u2705"
+        }
+      ]
+    },
+    "D": {
+      "passed": 7,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "D1 baseline latency",
+          "passed": true,
+          "message": "p50=1.7ms (need <50), p99=2.8ms (need <200), success=100.0%"
+        },
+        {
+          "id": "D2 serial 100ms",
+          "passed": true,
+          "message": "100.0% requests within 100ms budget (need \u226595%)"
+        },
+        {
+          "id": "D3 serial 50ms",
+          "passed": true,
+          "message": "100.0% within 50ms budget (need \u226590%)"
+        },
+        {
+          "id": "D4 scheduler floor",
+          "passed": true,
+          "message": "p50=1.3ms (pass if <50 \u2014 backend is fast; Windows timer ~15.6ms is the real floor)"
+        },
+        {
+          "id": "D5 burst 10t\u00d720r",
+          "passed": true,
+          "message": "success=100.0% (need \u226599%), p95=14.9ms (need <500)"
+        },
+        {
+          "id": "D6 burst 50t\u00d710r",
+          "passed": true,
+          "message": "success=100.0% (need \u226595%), p95=47.4ms (need <1000)"
+        },
+        {
+          "id": "D7 saturation 500",
+          "passed": true,
+          "message": "success=100.0% (need \u226595%), empty=0 (need 0)"
+        }
+      ]
+    },
+    "E": {
+      "passed": 5,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "E1 all 27 tags",
+          "passed": true,
+          "message": "tagCount=27 (expected 27)"
+        },
+        {
+          "id": "E2 tag fields",
+          "passed": true,
+          "message": "has_id=True, has_value=True, has_timestamp=True"
+        },
+        {
+          "id": "E3 freshness 30s",
+          "passed": true,
+          "message": "median=-0ms, max=0ms, stale_events=0"
+        },
+        {
+          "id": "E4 no empty responses",
+          "passed": true,
+          "message": "empty=0/200 in 0.21s rapid read"
+        },
+        {
+          "id": "E5 timestamp monotonicity",
+          "passed": true,
+          "message": "t0=2026-05-25T16:00:26.917  t5=2026-05-25T16:00:27.417  advanced \u2705"
+        }
+      ]
+    },
+    "F": {
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "F1 unknown tag",
+          "passed": true,
+          "message": "HTTP 404 \u2014 ok (not 500)"
+        },
+        {
+          "id": "F2 status concurrent",
+          "passed": true,
+          "message": "500_errors=0, success=100.0%"
+        },
+        {
+          "id": "F3 content-type",
+          "passed": true,
+          "message": "Content-Type: application/json; charset=utf-8"
+        },
+        {
+          "id": "F4 100 concurrent",
+          "passed": true,
+          "message": "success=100.0% (need \u226595%), p95=25.2ms"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "PASS",
+  "total_passed": 35,
+  "total_failed": 0,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

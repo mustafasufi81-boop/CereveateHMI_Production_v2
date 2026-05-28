@@ -26,8 +26,7 @@ public class LogFileReaderService
             ? configuredPath
             : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, configuredPath);
         
-        _logger.LogInformation($"Log file reader using directory: {_logsFolder}");
-        Console.WriteLine($"[LOG READER INIT] Directory: {_logsFolder}");
+        _logger.LogInformation("Log file reader using directory: {LogDirectory}", _logsFolder);
     }
 
     public List<string> GetLogFiles()

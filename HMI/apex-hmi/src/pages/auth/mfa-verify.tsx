@@ -47,7 +47,11 @@ const MfaVerify = () => {
     });
 
     const fetchQuestion = async () => {
-        if (questionData || !tempToken) return;
+        if (!tempToken) return;
+        if (questionData) {
+            setMethod("question");
+            return;
+        }
         setFetchingQuestion(true);
         try {
             // We need to pass the tempToken to get the question
@@ -119,7 +123,7 @@ const MfaVerify = () => {
                         <Button
                             variant={method === "question" ? "default" : "outline"}
                             size="sm"
-                            onClick={fetchQuestion}
+                            onClick={() => { setMethod("question"); fetchQuestion(); }}
                             disabled={fetchingQuestion}
                         >
                             {fetchingQuestion ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldQuestion className="mr-2 h-4 w-4" />}
@@ -140,6 +144,8 @@ const MfaVerify = () => {
                                                 <FormControl>
                                                     <Input 
                                                         placeholder="Enter 6-digit token" 
+                                                        type="password"
+                                                        autoComplete="one-time-code"
                                                         {...field} 
                                                         maxLength={6}
                                                         className="text-center text-2xl tracking-widest font-mono"
@@ -147,8 +153,8 @@ const MfaVerify = () => {
                                                 </FormControl>
                                                 <FormMessage />
                                                 <p className="text-xs text-muted-foreground mt-2">
-                                                    Use the token you received during registration. 
-                                                    If token expired or lost, use default: <span className="font-mono font-semibold">123456</span>
+                                                    Use the 6-digit backup key you received during registration.
+                                                    If your key has expired, contact an administrator to regenerate it.
                                                 </p>
                                             </FormItem>
                                         )}
@@ -168,7 +174,16 @@ const MfaVerify = () => {
                                             <FormItem>
                                                 <FormLabel>Answer</FormLabel>
                                                 <FormControl>
-                                                    <Input placeholder="Your answer" {...field} />
+                                                    <Input
+                                                        {...field}
+                                                        type="password"
+                                                        placeholder="Your answer"
+                                                        autoComplete="new-password"
+                                                        name="sq_ans_nofill"
+                                                        id="sq_ans_nofill"
+                                                        data-lpignore="true"
+                                                        data-form-type="other"
+                                                    />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>

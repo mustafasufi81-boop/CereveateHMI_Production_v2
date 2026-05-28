@@ -50,6 +50,7 @@ public class OpcServerConnection : IDisposable
     private List<TagValue>? _cachedValues;
     private readonly ILogger<OpcServerConnection> _logger;
     private readonly OpcDaWebBrowser.Services.Health.IHealthStatusService? _healthService;
+    private readonly OpcStaDispatcher? _dispatcher;
     
     private const int GROUPS_COUNT = 5;
     private const int TAGS_PER_GROUP = 2000;
@@ -63,7 +64,7 @@ public class OpcServerConnection : IDisposable
 
     public event EventHandler<TagValuesEventArgs>? TagValuesUpdated;
 
-    public OpcServerConnection(string serverProgID, string host = "", string clsid = "", int pollingIntervalMs = 1000, ILogger<OpcServerConnection>? logger = null, OpcDaWebBrowser.Services.Health.IHealthStatusService? healthService = null)
+    public OpcServerConnection(string serverProgID, string host = "", string clsid = "", int pollingIntervalMs = 1000, ILogger<OpcServerConnection>? logger = null, OpcDaWebBrowser.Services.Health.IHealthStatusService? healthService = null, OpcStaDispatcher? dispatcher = null)
     {
         ServerProgID = serverProgID;
         ServerCLSID = clsid ?? "";
@@ -72,6 +73,7 @@ public class OpcServerConnection : IDisposable
         ConnectionId = IsLocal ? serverProgID : $"{serverProgID}@{host}";
         _logger = logger ?? throw new ArgumentNullException(nameof(logger), "Logger is required for OpcServerConnection");
         _healthService = healthService;
+        _dispatcher = dispatcher;
     }
 
     public void Connect()
@@ -85,8 +87,11 @@ public class OpcServerConnection : IDisposable
 
             try
             {
-                _logger.LogInformation("[{EventType}] Starting connection | server={Server} | host={Host} | clsid={CLSID} | trace={CorrelationId}",
-                    LogEventType.OPC_CONNECT, ServerProgID, Host, ServerCLSID, correlationId);
+                _logger.LogInformation("[{EventType}] Starting connection | server={Server} | host={Host} | clsid={CLSID} | Thread={ThreadId} | Apartment={Apartment} | trace={CorrelationId}",
+                    LogEventType.OPC_CONNECT, ServerProgID, Host, ServerCLSID,
+                    Thread.CurrentThread.ManagedThreadId,
+                    Thread.CurrentThread.GetApartmentState(),
+                    correlationId);
                 Type? serverType = null;
 
                 // Try CLSID first (recommended for Windows XP compatibility)
@@ -294,7 +299,9 @@ public class OpcServerConnection : IDisposable
                 try
                 {
                     await Task.Delay(_currentPollingIntervalMs, token);
-                    var success = PollOnce();
+                    var success = _dispatcher != null
+                        ? await _dispatcher.InvokeAsync(() => PollOnce())
+                        : PollOnce();
 
                     if (success)
                     {
@@ -674,6 +681,12 @@ public class OpcServerConnection : IDisposable
             if (targetGroup.ItemMgt == null)
                 throw new Exception("Group not initialized");
 
+            _logger.LogInformation(
+                "[OPC ADD TAG] Calling AddItems | tag={ItemID} | group={Group} | Thread={ThreadId} | Apartment={Apartment}",
+                itemID, targetGroup.GroupIndex,
+                Thread.CurrentThread.ManagedThreadId,
+                Thread.CurrentThread.GetApartmentState());
+
             OPCITEMDEF[] itemDefs = new[]
             {
                 new OPCITEMDEF
@@ -687,17 +700,38 @@ public class OpcServerConnection : IDisposable
                 }
             };
 
-            targetGroup.ItemMgt.AddItems(1, itemDefs, out IntPtr resultsPtr, out IntPtr errorsPtr);
+            OPCITEMRESULT result = default;
+            try
+            {
+                targetGroup.ItemMgt.AddItems(1, itemDefs, out IntPtr resultsPtr, out IntPtr errorsPtr);
 
-            OPCITEMRESULT result = (OPCITEMRESULT)Marshal.PtrToStructure(resultsPtr, typeof(OPCITEMRESULT))!;
-            int[] errors = new int[1];
-            Marshal.Copy(errorsPtr, errors, 0, 1);
+                result = (OPCITEMRESULT)Marshal.PtrToStructure(resultsPtr, typeof(OPCITEMRESULT))!;
+                int[] errors = new int[1];
+                Marshal.Copy(errorsPtr, errors, 0, 1);
 
-            Marshal.FreeCoTaskMem(resultsPtr);
-            Marshal.FreeCoTaskMem(errorsPtr);
+                Marshal.FreeCoTaskMem(resultsPtr);
+                Marshal.FreeCoTaskMem(errorsPtr);
 
-            if (errors[0] != 0)
-                throw new Exception($"Failed to add tag: 0x{errors[0]:X8}");
+                if (errors[0] != 0)
+                {
+                    _logger.LogError(
+                        "[OPC ADD TAG] AddItems HRESULT error | tag={ItemID} | HRESULT=0x{HResult:X8} | Thread={ThreadId} | Apartment={Apartment}",
+                        itemID, errors[0],
+                        Thread.CurrentThread.ManagedThreadId,
+                        Thread.CurrentThread.GetApartmentState());
+                    throw new Exception($"Failed to add tag: 0x{errors[0]:X8}");
+                }
+            }
+            catch (System.Runtime.InteropServices.COMException comEx)
+            {
+                _logger.LogError(
+                    comEx,
+                    "[OPC ADD TAG] COMException | tag={ItemID} | HRESULT=0x{HResult:X8} | Thread={ThreadId} | Apartment={Apartment}",
+                    itemID, comEx.ErrorCode,
+                    Thread.CurrentThread.ManagedThreadId,
+                    Thread.CurrentThread.GetApartmentState());
+                throw;
+            }
 
             targetGroup.Tags.Add(new TagMonitor
             {
@@ -807,6 +841,11 @@ public class OpcServerConnection : IDisposable
     {
         var correlationId = CorrelationContext.Current; // Use existing cycle ID or create new one
         var sw = Stopwatch.StartNew();
+        _logger.LogDebug(
+            "[OPC READ] ReadTagValues | tags={TagCount} | Thread={ThreadId} | Apartment={Apartment}",
+            MonitoredTagCount,
+            Thread.CurrentThread.ManagedThreadId,
+            Thread.CurrentThread.GetApartmentState());
         List<TagValue> allValues = new(MonitoredTagCount);
         
         // Read each group sequentially

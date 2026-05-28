@@ -335,6 +335,17 @@ public record PlcTagValueCacheEntry
     public string? EngineeringUnit { get; init; }
     
     // ═══════════════════════════════════════════════════════════════════
+    // S2-6: SCAN SEQUENCE TRACKING
+    // ═══════════════════════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Scan sequence ID - increments per scan cycle. Allows UI to detect
+    /// partial/mixed-cycle data. All tags from same scan have identical SequenceId.
+    /// S2-6: Added for scan cycle correlation (mirrors OPC _sequenceId pattern)
+    /// </summary>
+    public long SequenceId { get; init; }
+    
+    // ═══════════════════════════════════════════════════════════════════
     // S1-3: age_ms COMPUTATION
     // ═══════════════════════════════════════════════════════════════════
     

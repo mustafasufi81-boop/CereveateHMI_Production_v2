@@ -1,0 +1,129 @@
+{
+  "run_id": "20260526_021014",
+  "timestamp": "2026-05-26T02:10:57.889309",
+  "suite": "Section H \u2014 COM Dispatcher Resilience",
+  "passed": 7,
+  "total": 7,
+  "results": [
+    {
+      "test_id": "H1 STA apartment",
+      "passed": true,
+      "message": "Concurrent: 10/10 ok | Dispatcher apartment='STA' thread=11 \u2705",
+      "detail": "Part A: concurrent stability proxy. Part B: /api/health/dispatcher apartment==STA",
+      "duration_s": 0.02,
+      "data": {
+        "errors": 0,
+        "tag_counts": [
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27,
+          27
+        ],
+        "apartment": "STA",
+        "thread_id": 11,
+        "dispatcher_endpoint_code": 200
+      }
+    },
+    {
+      "test_id": "H2 heartbeat monotonic",
+      "passed": true,
+      "message": "5/5 health polls OK, timestamps advancing \u2705",
+      "detail": "/api/health Timestamp must advance \u2014 stale timestamp = push service frozen",
+      "duration_s": 4.06,
+      "data": {
+        "timestamps": [
+          "2026-05-26T02:10:14.8489211+05:30",
+          "2026-05-26T02:10:15.8680653+05:30",
+          "2026-05-26T02:10:16.8718716+05:30",
+          "2026-05-26T02:10:17.8841667+05:30",
+          "2026-05-26T02:10:18.8961412+05:30"
+        ],
+        "failures": 0
+      }
+    },
+    {
+      "test_id": "H3 queue drain",
+      "passed": true,
+      "message": "Burst 50: 0 server 500s, tagCount=27 after drain \u2705",
+      "detail": "Unbounded queue = no overflow; bounded queue must not block ASP.NET thread pool",
+      "duration_s": 5.08,
+      "data": {
+        "burst": 50,
+        "errors_500": 0,
+        "errors_net": 0,
+        "drained": true
+      }
+    },
+    {
+      "test_id": "H4 dispatcher latency",
+      "passed": true,
+      "message": "p50=15.0ms p95=16.0ms p99=16.0ms max=16.0ms errors=0",
+      "detail": "Thresholds: p50<50ms p95<200ms p99<500ms \u2014 STA dispatch adds overhead vs REST pool",
+      "duration_s": 21.08,
+      "data": {
+        "p50": 15.000000013969839,
+        "p95": 16.00000000325963,
+        "p99": 16.00000000325963,
+        "max": 16.00000000325963,
+        "errors": 0,
+        "n": 100
+      }
+    },
+    {
+      "test_id": "H5 tagCount stability",
+      "passed": true,
+      "message": "200 polls at 50ms: min_tagCount=27, zeros=0, drops=0, errors=0 \u2705",
+      "detail": "tagCount drop to 0 = dispatcher hung or COM disconnected (Fix #1 regression)",
+      "duration_s": 12.11,
+      "data": {
+        "min_tc": 27,
+        "zeros": 0,
+        "drops": 0,
+        "errors": 0
+      }
+    },
+    {
+      "test_id": "H6 saturation no-500s",
+      "passed": true,
+      "message": "500 requests: ok=500 500s=0 err=0 success=100.0% \u2705",
+      "detail": "Thresholds: 0 HTTP 500s, \u226595% success rate",
+      "duration_s": 0.72,
+      "data": {
+        "storm": 500,
+        "ok": 500,
+        "500s": 0,
+        "err": 0,
+        "success_rate": 100.0
+      }
+    },
+    {
+      "test_id": "H9 OPC health fields",
+      "passed": true,
+      "message": "Status='Connected' TagsConnected=27 HealthScore=100 dispatcher_apt='STA' \u2705",
+      "detail": "OPC required=['status', 'tagsconnected', 'healthscore', 'lastupdate'] | Dispatcher required=['apartment', 'threadid', 'queuedepth', 'operationsprocessed', 'state'] present=['apartment', 'threadid', 'queuedepth', 'operationsprocessed', 'state'] missing=[]",
+      "duration_s": 0.01,
+      "data": {
+        "status": "Connected",
+        "tags_connected": 27,
+        "health_score": 100,
+        "required_missing": [],
+        "dispatcher_fields_present": [
+          "apartment",
+          "threadid",
+          "queuedepth",
+          "operationsprocessed",
+          "state"
+        ],
+        "dispatcher_fields_missing": [],
+        "dispatcher_apartment": "STA",
+        "dispatcher_endpoint_code": 200
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+"Status","Details","Test"
+"PASS","100/100 succeeded, 25.3254501s duration","11.1"
+"PASS","1000/1000 @ 157.39 req/s","11.2"
+"FAIL","0/50 succeeded","12.1"
+"PASS","Connected: True, CF: 0","7.1"
+"PASS","Growth: 0 MB","13.1"
+"PASS","CF: 0, Connected: True","9.2"

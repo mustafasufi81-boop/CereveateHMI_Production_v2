@@ -12,23 +12,58 @@ namespace OpcDaWebBrowser.Services;
 /// Multi-server OPC DA manager - handles multiple concurrent connections
 /// Each connection has independent polling via Timer
 /// </summary>
-public class OpcDaService
+public class OpcDaService : IDisposable
 {
     private readonly ConcurrentDictionary<string, OpcServerConnection> _connections = new();
     private readonly ILogger<OpcDaService> _logger;
     private readonly ILoggerFactory _loggerFactory;
     private readonly IHealthStatusService? _healthService;
     private readonly LoggingConfigService _configService;
+    private readonly OpcStaDispatcher? _dispatcher;
     private long _lastUiBroadcastTicks = 0;
+    private Timer? _dispatcherMetricsPushTimer;
 
     public event EventHandler<TagValuesEventArgs>? TagValuesUpdated;
 
-    public OpcDaService(ILogger<OpcDaService> logger, ILoggerFactory loggerFactory, LoggingConfigService configService, IHealthStatusService? healthService = null)
+    public OpcDaService(ILogger<OpcDaService> logger, ILoggerFactory loggerFactory, LoggingConfigService configService, IHealthStatusService? healthService = null, OpcStaDispatcher? dispatcher = null)
     {
         _logger = logger;
         _loggerFactory = loggerFactory;
         _configService = configService;
         _healthService = healthService;
+        _dispatcher = dispatcher;
+
+        // Push dispatcher metrics to health service every 5 seconds (lock-free read, no STA involvement)
+        if (_dispatcher != null && _healthService != null)
+        {
+            _dispatcherMetricsPushTimer = new Timer(_ =>
+            {
+                try
+                {
+                    var m = _dispatcher.GetMetrics();
+                    _healthService.UpdateDispatcherHealth(new DispatcherHealth
+                    {
+                        ThreadId     = m.ThreadId,
+                        Apartment    = m.Apartment,
+                        QueueDepth   = m.QueueDepth,
+                        MaxQueueDepth = m.MaxQueueDepth,
+                        OperationsProcessed = m.OperationsProcessed,
+                        TimeoutCount = m.TimeoutCount,
+                        RejectedCount       = m.RejectedCount,
+                        State               = m.State,
+                        LastStateChangeUtc  = m.LastStateChangeUtc,
+                        StateReason         = m.StateReason,
+                        LastSuccess         = m.LastSuccess,
+                        LastHeartbeat       = m.LastHeartbeat,
+                        LastError           = m.LastError
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[DispatcherMetrics] Failed to push metrics snapshot");
+                }
+            }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }
     }
 
     public int ConnectionCount => _connections.Count;
@@ -201,7 +236,7 @@ public class OpcDaService
         }
 
         var connectionLogger = _loggerFactory.CreateLogger<OpcServerConnection>();
-        var connection = new OpcServerConnection(serverProgID, host, clsid, pollingIntervalMs, connectionLogger, _healthService);
+        var connection = new OpcServerConnection(serverProgID, host, clsid, pollingIntervalMs, connectionLogger, _healthService, _dispatcher);
         
         connection.TagValuesUpdated += (sender, args) =>
         {
@@ -325,8 +360,26 @@ public class OpcDaService
 
     public void Connect(string serverProgID, string host = "", string clsid = "")
     {
+        _logger.LogInformation(
+            "[OPC SERVICE] Connect | server={ProgID} | Thread={ThreadId} | Apartment={Apartment}",
+            serverProgID,
+            Thread.CurrentThread.ManagedThreadId,
+            Thread.CurrentThread.GetApartmentState());
         string connectionId = AddServerConnection(serverProgID, host, clsid);
-        ConnectServer(connectionId);
+        if (_dispatcher != null)
+        {
+            // Route the actual COM connect through the persistent STA dispatcher so
+            // IOPCServer/IOPCItemMgt objects are created on a thread that NEVER exits.
+            // Using Task.Run().Wait() intentionally here: Connect() is always called from
+            // a background thread (OpcAutoConnectService Task.Run, or SignalR hub).
+            // The dispatcher thread is a dedicated STA — no deadlock risk.
+            var connectTask = _dispatcher.InvokeAsync(() => ConnectServer(connectionId));
+            connectTask.GetAwaiter().GetResult();
+        }
+        else
+        {
+            ConnectServer(connectionId);
+        }
     }
 
     public void Disconnect()
@@ -353,8 +406,22 @@ public class OpcDaService
 
     public void AddTagToMonitor(string itemID, string displayName)
     {
+        _logger.LogInformation(
+            "[OPC SERVICE] AddTagToMonitor | tag={ItemID} | Thread={ThreadId} | Apartment={Apartment}",
+            itemID,
+            Thread.CurrentThread.ManagedThreadId,
+            Thread.CurrentThread.GetApartmentState());
         var firstConnected = _connections.FirstOrDefault(c => c.Value.IsConnected).Value;
-        if (firstConnected != null)
+        if (firstConnected == null) return;
+
+        if (_dispatcher != null)
+        {
+            // Route AddItems COM call through permanent STA dispatcher.
+            // COM objects (IOPCItemMgt) were created on the dispatcher's STA thread;
+            // they must be used from the same thread.
+            _dispatcher.InvokeAsync(() => firstConnected.AddTag(itemID, displayName)).GetAwaiter().GetResult();
+        }
+        else
         {
             firstConnected.AddTag(itemID, displayName);
         }
@@ -371,6 +438,12 @@ public class OpcDaService
     public List<TagValue> ReadTagValues()
     {
         return ReadAllTagValues();
+    }
+
+    public void Dispose()
+    {
+        _dispatcherMetricsPushTimer?.Dispose();
+        _dispatcherMetricsPushTimer = null;
     }
 }
 

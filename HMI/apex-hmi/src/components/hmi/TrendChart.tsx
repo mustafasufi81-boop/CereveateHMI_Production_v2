@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   LineChart,
   Line,
@@ -19,11 +19,11 @@ const TAG_COLORS = [
   '#FF8800', '#FF4444', '#4488FF', '#AA44FF',
 ];
 
-const FORECAST_COLOR   = '#F59E0B';  // amber â€” clearly "prediction, not history"
+const FORECAST_COLOR   = '#F59E0B';  // amber — clearly "prediction, not history"
 const FORECAST_KEY     = '__forecast__';
 const FORECAST_REFRESH = 60_000;     // re-fetch forecast every 60 s
 
-/** Map of tagId â†’ array of {time, value} points (live MQTT buffer) */
+/** Map of tagId → array of {time, value} points (live MQTT buffer) */
 export interface LiveTrendData {
   points: Record<string, { time: string; value: number }[]>;
   tagLabels?: Record<string, string>;
@@ -32,7 +32,7 @@ export interface LiveTrendData {
 interface TrendChartProps {
   title: string;
   tagIds?: string[];        // For historical API mode
-  liveData?: LiveTrendData; // Pre-built MQTT buffer â€” bypasses API when provided
+  liveData?: LiveTrendData; // Pre-built MQTT buffer — bypasses API when provided
   mode?: 'live' | 'historical';
   equipmentId?: string;
   /** Show a dashed seasonal_fft forecast line continuing from the last data point.
@@ -44,7 +44,7 @@ interface TrendChartProps {
 
 interface TrendDataPoint {
   time: string;
-  /** epoch ms â€” used to sort and merge historical + forecast on a shared axis */
+  /** epoch ms — used to sort and merge historical + forecast on a shared axis */
   _ts: number;
   [key: string]: any;
 }
@@ -76,7 +76,7 @@ export const TrendChart = ({
   const forecastActive = showForecast ?? (mode === 'historical' && tagIds?.length === 1);
   const forecastTagId  = forecastActive && tagIds?.length === 1 ? tagIds[0] : null;
 
-  // â”€â”€ LIVE MODE: render MQTT buffer directly â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── LIVE MODE: render MQTT buffer directly ─────────────────────────────────
   useEffect(() => {
     if (mode !== 'live' || !liveData) return;
     if (!liveData.points || Object.keys(liveData.points).length === 0) {
@@ -95,7 +95,7 @@ export const TrendChart = ({
     setHistoricalData(Object.values(timeMap).sort((a, b) => a._ts - b._ts));
   }, [liveData, mode]);
 
-  // â”€â”€ HISTORICAL MODE: fetch from API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── HISTORICAL MODE: fetch from API ───────────────────────────────────────
   useEffect(() => {
     if (mode === 'live') return;
     const fetchData = async () => {
@@ -137,7 +137,7 @@ export const TrendChart = ({
     fetchData();
   }, [selectedRange, tagIds, mode]);
 
-  // â”€â”€ FORECAST: fetch multi-model projection from /api/bi/forecast â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── FORECAST: fetch multi-model projection from /api/bi/forecast ─────────
   const fetchForecast = useCallback(async () => {
     if (!forecastTagId) return;
     setForecastLoading(true);
@@ -169,7 +169,7 @@ export const TrendChart = ({
       if (points.length === 0 || timestamps.length === 0) return;
       setForecastModel(bestModel);
 
-      // Build forecast data points â€” each entry has FORECAST_KEY + a _ts for sort/merge
+      // Build forecast data points — each entry has FORECAST_KEY + a _ts for sort/merge
       const pts: TrendDataPoint[] = timestamps.map((isoStr: string, i: number) => {
         const d = new Date(isoStr);
         return {
@@ -180,7 +180,7 @@ export const TrendChart = ({
       });
       setForecastPoints(pts);
     } catch {
-      // Silently degrade â€” chart still shows without forecast line
+      // Silently degrade — chart still shows without forecast line
     } finally {
       setForecastLoading(false);
     }
@@ -194,16 +194,16 @@ export const TrendChart = ({
     return () => { if (forecastTimerRef.current) clearInterval(forecastTimerRef.current); };
   }, [forecastActive, fetchForecast, selectedRange]);
 
-  // â”€â”€ Merge historical + forecast onto a single time axis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Merge historical + forecast onto a single time axis ───────────────────
   //
-  // DESIGN: the two Recharts <Line> components share exactly ONE junction point â€”
+  // DESIGN: the two Recharts <Line> components share exactly ONE junction point —
   // the last historical data row.  We inject FORECAST_KEY into that row using
-  // points[0] from the API (which _shape_forecast guarantees â‰ˆ y[-1]).
+  // points[0] from the API (which _shape_forecast guarantees ≈ y[-1]).
   // This means:
-  //   â€¢ Solid line  ends   at junction (last DB row)          â€” real data only
-  //   â€¢ Dashed line starts at junction, continues into future  â€” model only
-  //   â€¢ No phantom extension of the solid line into future timestamps
-  //   â€¢ No floating disconnected forecast line
+  //   • Solid line  ends   at junction (last DB row)          — real data only
+  //   • Dashed line starts at junction, continues into future  — model only
+  //   • No phantom extension of the solid line into future timestamps
+  //   • No floating disconnected forecast line
   //
   const data: TrendDataPoint[] = (() => {
     if (historicalData.length === 0) return [...forecastPoints];
@@ -221,7 +221,7 @@ export const TrendChart = ({
       return pt;
     });
 
-    // Append the pure forecast points (they have NO tagId key â€” solid line doesn't extend)
+    // Append the pure forecast points (they have NO tagId key — solid line doesn't extend)
     merged.push(...forecastPoints);
     return merged;
   })();
@@ -255,14 +255,14 @@ export const TrendChart = ({
                 borderRadius: 4,
                 border: '1px solid',
               }}>
-              ðŸ”® {forecastModel.toUpperCase()} +{forecastHorizon}min
-              {forecastLoading && ' â€¦'}
+              🔮 {forecastModel.toUpperCase()} +{forecastHorizon}min
+              {forecastLoading && ' …'}
             </span>
           )}
           {mode === 'live' ? (
             <span className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full border border-green-500/50 bg-green-500/10 text-green-400">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse inline-block" />
-              LIVE â€¢ UPDATE: 1s
+              LIVE • UPDATE: 1s
             </span>
           ) : (
             <div className="flex gap-2">
@@ -301,7 +301,7 @@ export const TrendChart = ({
           {forecastActive && forecastPoints.length > 0 && (
             <span className="px-2 py-0.5 text-xs font-mono rounded-sm border"
               style={{ color: FORECAST_COLOR, borderColor: `${FORECAST_COLOR}50`, backgroundColor: `${FORECAST_COLOR}15` }}>
-              â”€â”€ forecast
+              ── forecast
             </span>
           )}
         </div>
@@ -338,7 +338,7 @@ export const TrendChart = ({
                 itemStyle={{ color: "rgb(203,213,225)" }}
                 formatter={(value: any, name: string) =>
                   name === FORECAST_KEY
-                    ? [`${typeof value === 'number' ? value.toFixed(2) : value}`, 'ðŸ”® Forecast']
+                    ? [`${typeof value === 'number' ? value.toFixed(2) : value}`, '🔮 Forecast']
                     : [typeof value === 'number' ? value.toFixed(2) : value, getLabel(name)]
                 }
               />
@@ -346,7 +346,7 @@ export const TrendChart = ({
                 formatter={(value) =>
                   value === FORECAST_KEY
                     ? <span style={{ color: FORECAST_COLOR, fontFamily: 'monospace', fontSize: 11 }}>
-                        ðŸ”® forecast ({forecastModel})
+                        🔮 forecast ({forecastModel})
                       </span>
                     : <span className="text-slate-300 font-mono text-xs">{getLabel(value)}</span>
                 }
@@ -360,7 +360,7 @@ export const TrendChart = ({
                 />
               )}
 
-              {/* Historical lines â€” solid */}
+              {/* Historical lines — solid */}
               {activeTags.map((tagId, idx) => (
                 <Line key={tagId} type="monotone" dataKey={tagId} name={tagId}
                   stroke={TAG_COLORS[idx % TAG_COLORS.length]} strokeWidth={2}
@@ -368,7 +368,7 @@ export const TrendChart = ({
                   connectNulls={false} />
               ))}
 
-              {/* Forecast line â€” dashed amber */}
+              {/* Forecast line — dashed amber */}
               {forecastActive && forecastPoints.length > 0 && (
                 <Line key={FORECAST_KEY} type="monotone" dataKey={FORECAST_KEY}
                   name={FORECAST_KEY} stroke={FORECAST_COLOR} strokeWidth={2}

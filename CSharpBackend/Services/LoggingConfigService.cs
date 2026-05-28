@@ -97,10 +97,9 @@ public class LoggingConfigService
             if (!_config.SelectedTags.Contains(tagId))
             {
                 _config.SelectedTags.Add(tagId);
-                Console.WriteLine($"[CONFIG] Adding tag to logging: {tagId}");
+                _logger.LogInformation("Adding tag to logging: {TagId}", tagId);
                 SaveConfig();
-                Console.WriteLine($"[CONFIG] Total selected tags: {_config.SelectedTags.Count}");
-                _logger.LogInformation($"Added tag to logging: {tagId}");
+                _logger.LogDebug("Total selected tags: {Count}", _config.SelectedTags.Count);
             }
         }
     }
@@ -120,10 +119,9 @@ public class LoggingConfigService
         lock (_lock)
         {
             _config.IsEnabled = enabled;
-            Console.WriteLine($"[CONFIG] Setting logging enabled: {enabled}");
+            _logger.LogInformation("Setting logging enabled: {Enabled}", enabled);
             SaveConfig();
-            Console.WriteLine($"[CONFIG] Config saved to: {_configPath}");
-            _logger.LogInformation($"Logging {(enabled ? "enabled" : "disabled")}");
+            _logger.LogDebug("Config saved to: {ConfigPath}", _configPath);
         }
     }
 
@@ -137,9 +135,9 @@ public class LoggingConfigService
             {
                 _config.DataLogging.IntervalSeconds = intervalMs / 1000;
             }
-            Console.WriteLine($"[CONFIG] Setting logging interval: {intervalMs}ms ({intervalMs / 1000}s)");
+            _logger.LogInformation("Setting logging interval: {IntervalMs}ms ({IntervalSec}s)",
+                intervalMs, intervalMs / 1000);
             SaveConfig();
-            _logger.LogInformation($"Logging interval set to {intervalMs}ms");
         }
     }
 
@@ -269,7 +267,7 @@ public class LoggingConfigService
             // Step 1: Try to load existing file
             if (File.Exists(_configPath))
             {
-                Console.WriteLine($"[CONFIG] Found existing file: {_configPath}");
+                _logger?.LogDebug("Found existing config file: {ConfigPath}", _configPath);
                 
                 try
                 {
@@ -290,13 +288,13 @@ public class LoggingConfigService
                         config.MonitoredTags ??= new List<string>();
                         config.ServerClsid ??= null;
                         
-                        Console.WriteLine($"[CONFIG] Loaded USER settings - IsEnabled: {config.IsEnabled}, Tags: {config.SelectedTags.Count} selected, {config.MonitoredTags.Count} monitored");
-                        _logger?.LogInformation($"Preserved user config: {config.SelectedTags.Count} selected, {config.MonitoredTags.Count} monitored");
+                        _logger?.LogInformation("Loaded user settings - IsEnabled: {IsEnabled}, SelectedTags: {SelectedCount}, MonitoredTags: {MonitoredCount}",
+                            config.IsEnabled, config.SelectedTags.Count, config.MonitoredTags.Count);
                     }
                     else
                     {
                         // File exists but corrupt - use defaults WITHOUT destroying file
-                        Console.WriteLine("[CONFIG WARNING] File corrupt but preserved - using defaults");
+                        _logger?.LogWarning("Config file corrupt but preserved - using defaults");
                         config = GetDefaultConfig();
                         // DON'T save here - preserve corrupt file for investigation
                     }
@@ -304,8 +302,8 @@ public class LoggingConfigService
                 catch (JsonException jsonEx)
                 {
                     // JSON parsing failed - preserve file, use defaults
-                    Console.WriteLine($"[CONFIG ERROR] JSON parse failed: {jsonEx.Message}");
-                    Console.WriteLine($"[CONFIG] Preserving existing file, using defaults");
+                    _logger?.LogError(jsonEx, "JSON parse failed");
+                    _logger?.LogWarning("Preserving existing file, using defaults");
                     config = GetDefaultConfig();
                     // DON'T save - keep user's file
                 }
@@ -313,7 +311,7 @@ public class LoggingConfigService
             else
             {
                 // File doesn't exist - create with defaults
-                Console.WriteLine($"[CONFIG] No file found, creating defaults: {_configPath}");
+                _logger?.LogInformation("No config file found, creating defaults: {ConfigPath}", _configPath);
                 config = GetDefaultConfig();
                 
                 // Save new file
@@ -321,11 +319,11 @@ public class LoggingConfigService
                 {
                     var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
                     File.WriteAllText(_configPath, json);
-                    Console.WriteLine($"[CONFIG] Created new config file with defaults");
+                    _logger?.LogInformation("Created new config file with defaults");
                 }
                 catch (Exception saveEx)
                 {
-                    Console.WriteLine($"[CONFIG ERROR] Failed to create file: {saveEx.Message}");
+                    _logger?.LogError(saveEx, "Failed to create config file: {ConfigPath}", _configPath);
                     // Continue with in-memory defaults
                 }
             }
@@ -337,8 +335,7 @@ public class LoggingConfigService
         catch (Exception ex)
         {
             // Complete catastrophic failure - use hardcoded defaults
-            Console.WriteLine($"[CONFIG CRITICAL] Complete load failure, using hardcoded defaults: {ex.Message}");
-            _logger?.LogError(ex, "Critical error loading config - using defaults");
+            _logger?.LogError(ex, "Complete config load failure, using hardcoded defaults");
             return GetDefaultConfig();
         }
     }
@@ -355,8 +352,7 @@ public class LoggingConfigService
                 WriteIndented = true
             });
             File.WriteAllText(_configPath, json);
-            Console.WriteLine($"[CONFIG] Saved complete config to: {_configPath}");
-            _logger.LogDebug("Saved logging config");
+            _logger.LogDebug("Saved config to: {ConfigPath}", _configPath);
         }
         catch (Exception ex)
         {

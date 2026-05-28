@@ -1,0 +1,78 @@
+{
+  "run_id": "20260526_012426",
+  "timestamp": "2026-05-25T19:54:26.228520Z",
+  "mode": "full_soak30s_onlyD",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T19:54:26.229522Z",
+    "memory_rss_mb": 31.7,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T19:54:48.379877Z",
+    "memory_rss_mb": 36.1,
+    "thread_count": 5,
+    "handle_count": 265,
+    "delta_memory_rss_mb": 4.4,
+    "delta_thread_count": 1,
+    "delta_handle_count": 67
+  },
+  "sections": {
+    "D": {
+      "passed": 7,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "D1 baseline latency",
+          "passed": true,
+          "message": "p50=6.4ms (need <50), p99=9.9ms (need <200), success=100.0%"
+        },
+        {
+          "id": "D2 serial 100ms",
+          "passed": true,
+          "message": "100.0% requests within 100ms budget (need \u226595%)"
+        },
+        {
+          "id": "D3 serial 50ms",
+          "passed": true,
+          "message": "100.0% within 50ms budget (need \u226590%)"
+        },
+        {
+          "id": "D4 scheduler floor",
+          "passed": true,
+          "message": "p50=5.1ms (pass if <50 \u2014 backend is fast; Windows timer ~15.6ms is the real floor)"
+        },
+        {
+          "id": "D5 burst 10t\u00d720r",
+          "passed": true,
+          "message": "success=100.0% (need \u226599%), p95=38.0ms (need <500)"
+        },
+        {
+          "id": "D6 burst 50t\u00d710r",
+          "passed": true,
+          "message": "success=100.0% (need \u226595%), p95=208.4ms (need <1000)"
+        },
+        {
+          "id": "D7 saturation 500",
+          "passed": true,
+          "message": "success=100.0% (need \u226595%), empty=0 (need 0)"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "PASS",
+  "total_passed": 7,
+  "total_failed": 0,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

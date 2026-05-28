@@ -217,7 +217,16 @@ const Signup = () => {
                                             render={({ field }) => (
                                                 <FormItem>
                                                     <FormControl>
-                                                        <Input placeholder="Your answer" {...field} />
+                                                        <Input
+                                                            {...field}
+                                                            type="password"
+                                                            placeholder="Your answer"
+                                                            autoComplete="new-password"
+                                                            name="sq_ans_nofill"
+                                                            id="sq_ans_nofill"
+                                                            data-lpignore="true"
+                                                            data-form-type="other"
+                                                        />
                                                     </FormControl>
                                                     <FormMessage />
                                                 </FormItem>

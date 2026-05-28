@@ -1,0 +1,73 @@
+{
+  "run_id": "20260526_012417",
+  "timestamp": "2026-05-25T19:54:17.918617Z",
+  "mode": "full_soak30s_onlyC",
+  "psutil_available": true,
+  "environment": {
+    "python_version": "3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]",
+    "platform": "win32",
+    "cpu_count": 20
+  },
+  "baseline": {
+    "label": "pre_test",
+    "timestamp": "2026-05-25T19:54:17.919566Z",
+    "memory_rss_mb": 31.9,
+    "thread_count": 4,
+    "handle_count": 198
+  },
+  "post_run": {
+    "label": "post_test",
+    "timestamp": "2026-05-25T19:54:17.959072Z",
+    "memory_rss_mb": 32.2,
+    "thread_count": 4,
+    "handle_count": 198,
+    "delta_memory_rss_mb": 0.3,
+    "delta_thread_count": 0,
+    "delta_handle_count": 0
+  },
+  "sections": {
+    "C": {
+      "passed": 6,
+      "failed": 0,
+      "tests": [
+        {
+          "id": "C1 no permanent stop",
+          "passed": true,
+          "message": "No permanent _reconnect_stopped=True found \u2705"
+        },
+        {
+          "id": "C2 backoff schedule",
+          "passed": true,
+          "message": "_backoff_delays present=True, values [5,10,30,60] present=True"
+        },
+        {
+          "id": "C3 method + random",
+          "passed": true,
+          "message": "method=True, import_random=True, jitter=True"
+        },
+        {
+          "id": "C4 no loop_stop in disconnect",
+          "passed": true,
+          "message": "loop_stop() NOT called in _on_disconnect \u2705"
+        },
+        {
+          "id": "C5 retry thread spawned",
+          "passed": true,
+          "message": "_reconnect_thread spawned in _on_disconnect \u2705"
+        },
+        {
+          "id": "C6 backoff math",
+          "passed": true,
+          "message": "Backoff schedule: 0\u21925s, 1\u219210s, 2\u219230s, 3+\u219260s \u2705"
+        }
+      ]
+    }
+  },
+  "perf": {},
+  "verdict": "PASS",
+  "total_passed": 6,
+  "total_failed": 0,
+  "failed_samples": [],
+  "failed_sample_count": 0,
+  "error_summary": {}
+}

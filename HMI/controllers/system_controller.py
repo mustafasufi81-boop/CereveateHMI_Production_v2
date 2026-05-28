@@ -31,82 +31,86 @@ def get_config():
 @token_required
 def proxy_opc_values(current_user):
     """
-    Proxy endpoint for OPC live values (RBAC protected)
-    Forwards requests to C# OPC service on port 5001
+    Proxy endpoint for OPC live values (RBAC protected).
+    Tags with no plant/area (OPC/PLC simulator tags) are visible to ALL
+    authenticated users — same rule as the MQTT broadcast.
     """
     try:
-        # Get RBAC filter
         tag_filter = get_user_allowed_tag_filter()
-        
-        # Use urllib instead of requests (compatible with eventlet monkey patching)
+
         req = urllib.request.Request('http://127.0.0.1:5001/api/opc/values')
         with urllib.request.urlopen(req, timeout=3) as response:
             data = json_lib.loads(response.read().decode('utf-8'))
-            
-            # Apply RBAC filtering
-            if tag_filter is not None and 'tags' in data:
-                tags = data['tags']
-                # OPC backend may return tags as a list OR a dict — normalise to dict
-                if isinstance(tags, list):
-                    tags = {t.get('tagId') or t.get('tag') or t.get('id', ''): t for t in tags}
-                filtered_tags = {}
-                for tag_id, tag_data in tags.items():
-                    # Get plant/area info for this tag
-                    plant = tag_data.get('plant')
-                    area = tag_data.get('area')
-                    if tag_filter(tag_id, plant, area):
-                        filtered_tags[tag_id] = tag_data
-                data['tags'] = filtered_tags
-                data['count'] = len(filtered_tags)
-            
-            return jsonify(data), 200
-            
-    except urllib.error.URLError as e:
-        return jsonify({'error': 'OPC service not available', 'tags': {}, 'count': 0}), 503
+
+        tags_raw = data.get('tags') or []
+        # Normalise to list
+        if isinstance(tags_raw, dict):
+            tags_raw = list(tags_raw.values())
+
+        # Apply RBAC: tags with no plant/area are visible to everyone (OPC/PLC tags)
+        if tag_filter is not None:
+            tags_raw = [
+                t for t in tags_raw
+                if t.get('plant') is None and t.get('area') is None
+                or tag_filter(t.get('tagId') or t.get('tag_id', ''), t.get('plant'), t.get('area'))
+            ]
+
+        return jsonify({
+            'tags': tags_raw,
+            'count': len(tags_raw),
+            'timestamp': data.get('timestamp') or data.get('lastUpdate'),
+            'source': 'opc'
+        }), 200
+
+    except urllib.error.URLError:
+        return jsonify({'error': 'OPC service not available', 'tags': [], 'count': 0}), 503
     except Exception as e:
         logger.error(f"❌ OPC proxy error: {e}")
-        return jsonify({'error': str(e), 'tags': {}, 'count': 0}), 500
+        return jsonify({'error': str(e), 'tags': [], 'count': 0}), 500
 
 
 @system_bp.route('/plc/values')
 @token_required
 def proxy_plc_values(current_user):
     """
-    Proxy endpoint for PLC live values (RBAC protected)
-    Forwards requests to C# PLC gateway on port 5001
-    Returns same shape as /api/opc/values so the frontend can handle both identically.
+    Proxy endpoint for PLC live values (RBAC protected).
+    Tags with no plant/area are visible to ALL authenticated users.
     """
     try:
         req = urllib.request.Request('http://127.0.0.1:5001/api/plc/values')
         with urllib.request.urlopen(req, timeout=3) as response:
             data = json_lib.loads(response.read().decode('utf-8'))
 
-        # C# returns { success, count, timestamp, tags: [ {tagId, value, quality, ...} ] }
-        tags_raw = data.get('tags') or []
+        # C# returns key 'values' (not 'tags') for PLC endpoint
+        tags_raw = data.get('values') or data.get('tags') or []
+        if isinstance(tags_raw, dict):
+            tags_raw = list(tags_raw.values())
 
-        # Normalise to dict keyed by tagId
-        if isinstance(tags_raw, list):
-            tags_dict = {t.get('tagId') or t.get('tag_id') or t.get('id', ''): t for t in tags_raw}
-        else:
-            tags_dict = tags_raw
+        # Normalise field names: C# uses tagName, frontend expects tagId
+        normalised = []
+        for t in tags_raw:
+            entry = dict(t)
+            if 'tagId' not in entry:
+                entry['tagId'] = t.get('tagName') or t.get('tag_id') or t.get('address', '')
+            normalised.append(entry)
 
-        # Apply same RBAC filter as OPC
         tag_filter = get_user_allowed_tag_filter()
         if tag_filter is not None:
-            tags_dict = {
-                tid: td for tid, td in tags_dict.items()
-                if tag_filter(tid, td.get('plant'), td.get('area'))
-            }
+            normalised = [
+                t for t in normalised
+                if t.get('plant') is None and t.get('area') is None
+                or tag_filter(t.get('tagId', ''), t.get('plant'), t.get('area'))
+            ]
 
         return jsonify({
-            'tags': tags_dict,
-            'count': len(tags_dict),
+            'tags': normalised,
+            'count': len(normalised),
             'timestamp': data.get('timestamp'),
             'source': 'plc'
         }), 200
 
-    except urllib.error.URLError as e:
-        return jsonify({'error': 'PLC service not available', 'tags': {}, 'count': 0}), 503
+    except urllib.error.URLError:
+        return jsonify({'error': 'PLC service not available', 'tags': [], 'count': 0}), 503
     except Exception as e:
         logger.error(f"❌ PLC proxy error: {e}")
-        return jsonify({'error': str(e), 'tags': {}, 'count': 0}), 500
+        return jsonify({'error': str(e), 'tags': [], 'count': 0}), 500

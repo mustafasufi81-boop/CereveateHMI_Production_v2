@@ -83,6 +83,26 @@ public record ResourceHealth
 }
 
 /// <summary>
+/// OPC STA Dispatcher metrics (lock-free snapshot from OpcStaDispatcher.GetMetrics())
+/// </summary>
+public record DispatcherHealth
+{
+    public int    ThreadId            { get; init; }
+    public string Apartment           { get; init; } = "Unknown";
+    public int    QueueDepth          { get; init; }
+    public int    MaxQueueDepth       { get; init; }
+    public long   OperationsProcessed { get; init; }
+    public int    TimeoutCount        { get; init; }
+    public int    RejectedCount       { get; init; }
+    public string State               { get; init; } = "Unknown";
+    public DateTime  LastStateChangeUtc { get; init; }
+    public string?   StateReason        { get; init; }
+    public DateTime? LastSuccess      { get; init; }
+    public DateTime? LastHeartbeat    { get; init; }
+    public string? LastError          { get; init; }
+}
+
+/// <summary>
 /// Complete system health snapshot (single API response)
 /// </summary>
 public record SystemHealthSnapshot
@@ -96,6 +116,7 @@ public record SystemHealthSnapshot
     public SpoolHealth Spool { get; init; } = new();
     public ArchiverHealth Archiver { get; init; } = new();
     public ResourceHealth Resources { get; init; } = new();
+    public DispatcherHealth Dispatcher { get; init; } = new();
     
     // Quick status indicators
     public int ActiveAlerts { get; init; }
