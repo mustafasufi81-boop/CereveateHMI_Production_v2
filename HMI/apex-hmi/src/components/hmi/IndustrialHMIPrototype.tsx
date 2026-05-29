@@ -369,6 +369,10 @@ export const IndustrialHMIPrototype = () => {
   const canViewHmi       = usePermission('hmi',       'canView');
 
   // Per-service failure tracking for the header status bar
+  // Use consecutive-failure counters (ref, not state) to avoid re-render on every poll.
+  // Badge only shows after 3+ consecutive failures — prevents transient blips.
+  const opcFailCountRef = useRef(0);
+  const plcFailCountRef = useRef(0);
   const [opcFailed,  setOpcFailed]  = useState(false);
   const [plcFailed,  setPlcFailed]  = useState(false);
   const [usingRestFallback, setUsingRestFallback] = useState(false);
@@ -850,6 +854,8 @@ export const IndustrialHMIPrototype = () => {
       setUsingRestFallback(false);
       setOpcFailed(false);
       setPlcFailed(false);
+      opcFailCountRef.current = 0;
+      plcFailCountRef.current = 0;
       return;
     }
 
@@ -905,11 +911,13 @@ export const IndustrialHMIPrototype = () => {
         const res = await fetch('/api/opc/values', { headers });
         if (!res.ok) throw new Error(`OPC HTTP ${res.status}`);
         const data = await res.json();
+        opcFailCountRef.current = 0;
         setOpcFailed(false);
         applyTagUpdates(data?.tags ?? data, 'rest-opc');
         setUsingRestFallback(!mqttWebSocketService.isConnected());
       } catch (e) {
-        setOpcFailed(true);
+        opcFailCountRef.current += 1;
+        if (opcFailCountRef.current >= 3) setOpcFailed(true);
         console.warn('[REST] OPC poll failed:', e);
       }
 
@@ -918,10 +926,12 @@ export const IndustrialHMIPrototype = () => {
         const res = await fetch('/api/plc/values', { headers });
         if (!res.ok) throw new Error(`PLC HTTP ${res.status}`);
         const data = await res.json();
+        plcFailCountRef.current = 0;
         setPlcFailed(false);
         applyTagUpdates(data?.tags ?? data?.values ?? data, 'rest-plc');
       } catch (e) {
-        setPlcFailed(true);
+        plcFailCountRef.current += 1;
+        if (plcFailCountRef.current >= 3) setPlcFailed(true);
         console.warn('[REST] PLC poll failed:', e);
       }
     };
@@ -1486,7 +1496,7 @@ export const IndustrialHMIPrototype = () => {
             )}
             {/* PLC(s) disconnected */}
             {!opcPlcStatus.loading && opcPlcStatus.anyPlcDisconnected && opcPlcStatus.plcs
-              .filter(p => !p.connected)
+              .filter(p => !p.connected && !p.isNoPlcSentinel)
               .map(p => (
                 <span key={p.id} style={{
                   color: '#ff7700',
@@ -1503,6 +1513,41 @@ export const IndustrialHMIPrototype = () => {
                 </span>
               ))
             }
+            {/* Gap 8: PLC(s) connected but in PROGRAM mode / frozen (no value changes >30s) */}
+            {!opcPlcStatus.loading && opcPlcStatus.plcs
+              .filter(p => p.connected && p.mode === 'FROZEN')
+              .map(p => (
+                <span key={`frozen-${p.id}`} style={{
+                  color: '#ffaa00',
+                  marginLeft: 8,
+                  fontWeight: 700,
+                  fontSize: '11px',
+                  padding: '2px 7px',
+                  border: '1px solid #ffaa00',
+                  borderRadius: '3px',
+                  backgroundColor: 'rgba(255,170,0,0.15)',
+                  animation: 'pulse 1.5s infinite',
+                }} title={`No tag value has changed for ${Math.round(p.frozenForMs/1000)}s — controller likely in PROGRAM mode or scan halted`}>
+                  ⚠ PLC {p.name || p.id}: PROGRAM/FROZEN ({Math.round(p.frozenForMs/1000)}s)
+                </span>
+              ))
+            }
+            {/* Gap 7: No PLC configured at all */}
+            {!opcPlcStatus.loading && opcPlcStatus.noPlcConfigured && (
+              <span style={{
+                color: '#ff2222',
+                marginLeft: 8,
+                fontWeight: 700,
+                fontSize: '11px',
+                padding: '2px 7px',
+                border: '1px solid #ff2222',
+                borderRadius: '3px',
+                backgroundColor: 'rgba(255,34,34,0.18)',
+                animation: 'pulse 1.5s infinite',
+              }}>
+                ⛔ NO PLC CONFIGURED — contact engineering
+              </span>
+            )}
           </div>
           {/* Per-source OPC/PLC badges — only shown for sources that have enabled tags in DB.
               DISCONNECTED = tags are configured for this source but no fresh data is arriving.
@@ -1578,7 +1623,52 @@ export const IndustrialHMIPrototype = () => {
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <span>{currentTime.toLocaleString('en-US', { hour12: false, month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-          <span>MODE: AUTO</span>
+          {/* PLC MODE — real per-PLC mode from C# backend (Gap 8).
+              RUN = green, FROZEN = orange (controller in PROGRAM mode / scan halted),
+              DISCONNECTED = red, UNKNOWN = grey. */}
+          {(() => {
+            const plcs = opcPlcStatus.plcs.filter(p => !p.isNoPlcSentinel);
+            if (opcPlcStatus.loading || plcs.length === 0) {
+              return <span style={{ color: '#888' }}>MODE: —</span>;
+            }
+            return plcs.map(p => {
+              let color = '#888';
+              let label = 'UNKNOWN';
+              let title = `${p.name || p.id}: mode unknown`;
+              if (!p.connected) {
+                color = '#ff2222'; label = 'DISCONNECTED';
+                title = `${p.name || p.id}: ${p.lastError || 'disconnected'}`;
+              } else if (p.mode === 'FROZEN') {
+                color = '#ffaa00'; label = `FROZEN ${Math.round(p.frozenForMs/1000)}s`;
+                title = `${p.name || p.id}: no tag value has changed for ${Math.round(p.frozenForMs/1000)}s — controller likely in PROGRAM mode or scan halted`;
+              } else if (p.mode === 'RUN') {
+                color = '#00c851'; label = 'RUN';
+                title = `${p.name || p.id}: RUN (values changing)`;
+              } else {
+                label = p.mode || 'UNKNOWN';
+              }
+              return (
+                <span key={`mode-${p.id}`} title={title} style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color,
+                  fontWeight: 700,
+                  fontSize: '11px',
+                  padding: '2px 7px',
+                  border: `1px solid ${color}`,
+                  borderRadius: '3px',
+                  backgroundColor: `${color}1f`,
+                }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    backgroundColor: color, boxShadow: `0 0 5px ${color}`,
+                  }} />
+                  MODE: {label}
+                </span>
+              );
+            });
+          })()}
 
           {/* Admin Link */}
           {user?.isAdmin && (
@@ -1823,9 +1913,30 @@ export const IndustrialHMIPrototype = () => {
                         const liveValue = liveTagValues[selectedTags[0].id];
                         const displayValue = liveValue?.value ?? selectedTags[0].value ?? 0;
                         const _n = typeof displayValue === 'number' ? displayValue : parseFloat(displayValue);
-                        return !isNaN(_n) ? _n.toFixed(3) : displayValue;
+                        const isStale = liveValue && (
+                          liveValue.quality === 'Stale' || liveValue.quality === 'STALE' ||
+                          liveValue.quality === 'Uncertain' || liveValue.quality === 'UNCERTAIN'
+                        );
+                        return (
+                          <span style={{ color: isStale ? '#6b7280' : undefined, opacity: isStale ? 0.6 : 1 }}>
+                            {!isNaN(_n) ? _n.toFixed(3) : displayValue}
+                          </span>
+                        );
                       })()}
                     </div>
+                    {/* Gap 2: STALE badge for single-tag display */}
+                    {(() => {
+                      const liveValue = liveTagValues[selectedTags[0].id];
+                      const isStale = liveValue && (
+                        liveValue.quality === 'Stale' || liveValue.quality === 'STALE' ||
+                        liveValue.quality === 'Uncertain' || liveValue.quality === 'UNCERTAIN'
+                      );
+                      return isStale ? (
+                        <div style={{ fontSize: '11px', color: '#f59e0b', backgroundColor: '#78350f44', border: '1px solid #f59e0b', borderRadius: '4px', padding: '2px 6px', marginTop: '4px', letterSpacing: '1px', fontWeight: 600 }}>
+                          ⚠ STALE
+                        </div>
+                      ) : null;
+                    })()}
                     <div style={{ fontSize: '20px', color: ISA_COLORS.foreground, marginTop: '8px' }}>
                       {selectedTags[0].unit || liveTagValues[selectedTags[0].id]?.unit || ''}
                     </div>
@@ -1977,9 +2088,20 @@ export const IndustrialHMIPrototype = () => {
                             const cleanUnit = displayUnit.replace(/^\d+\s*/, '');
                             const ts = liveTagValues[tag.id]?.timestamp;
                             const tsLabel = ts ? new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+                            // Gap 2: detect stale quality from the live value store
+                            const liveQ = liveTagValues[tag.id]?.quality;
+                            const isStale = liveQ === 'Stale' || liveQ === 'STALE' ||
+                                            liveQ === 'Uncertain' || liveQ === 'UNCERTAIN';
                             return (
                               <>
-                                <span>{`${formattedValue} ${cleanUnit}`}</span>
+                                <span style={{ color: isStale ? '#6b7280' : undefined, opacity: isStale ? 0.6 : 1 }}>
+                                  {`${formattedValue} ${cleanUnit}`}
+                                </span>
+                                {isStale && (
+                                  <div style={{ fontSize: '8px', color: '#f59e0b', marginTop: '1px', letterSpacing: '0.5px', fontWeight: 600 }}>
+                                    ⚠ STALE
+                                  </div>
+                                )}
                                 {tsLabel && (
                                   <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '2px', letterSpacing: '0.5px' }}>
                                     {tsLabel}
