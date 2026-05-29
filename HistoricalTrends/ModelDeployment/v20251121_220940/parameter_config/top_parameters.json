@@ -1,0 +1,133 @@
+{
+  "parameters": [
+    {
+      "rank": 1,
+      "tag_name": "COOLING_WATER_TEMP_CT_FAN",
+      "importance": 0.7482260932229768,
+      "correlation": 0.583919122273604,
+      "required": true
+    },
+    {
+      "rank": 2,
+      "tag_name": "SHAFT_VIB._IP_REAR-X",
+      "importance": 0.6669298545698649,
+      "correlation": 0.4868800562376947,
+      "required": true
+    },
+    {
+      "rank": 3,
+      "tag_name": "MAIN_STEAM_FLOWTPH",
+      "importance": 0.5871020936077889,
+      "correlation": 0.4027674056801328,
+      "required": true
+    },
+    {
+      "rank": 4,
+      "tag_name": "SHAFT_VIB._HP_REAR-YMICRO_METER-UM",
+      "importance": 0.5745014969407317,
+      "correlation": 0.5000841286990682,
+      "required": true
+    },
+    {
+      "rank": 5,
+      "tag_name": "ms_pressureKG-CM2",
+      "importance": 0.5087723871789477,
+      "correlation": 0.3726881543912521,
+      "required": true
+    },
+    {
+      "rank": 6,
+      "tag_name": "SHAFT_VIB._IP_REAR-Y",
+      "importance": 0.4831953774109885,
+      "correlation": 0.2946614120473823,
+      "required": true
+    },
+    {
+      "rank": 7,
+      "tag_name": "TOTAL_COAL_FLOW",
+      "importance": 0.4694859471037657,
+      "correlation": 0.2134105602008445,
+      "required": true
+    },
+    {
+      "rank": 8,
+      "tag_name": "NOX_PPM",
+      "importance": 0.4284213568561079,
+      "correlation": 0.2715964589576745,
+      "required": true
+    },
+    {
+      "rank": 9,
+      "tag_name": "SHAFT_VIB._HP_FRONT-Y",
+      "importance": 0.4141000006387145,
+      "correlation": 0.328672258487663,
+      "required": true
+    },
+    {
+      "rank": 10,
+      "tag_name": "O2_LEVEL",
+      "importance": 0.4075000540031018,
+      "correlation": 0.1530245631373826,
+      "required": true
+    },
+    {
+      "rank": 11,
+      "tag_name": "BEARING_VIB_HP_FRONT-XMICRO_METER-UM",
+      "importance": 0.3647634426417444,
+      "correlation": 0.1880257200354201,
+      "required": true
+    },
+    {
+      "rank": 12,
+      "tag_name": "BEARING_VIB_HP_REAR-Y",
+      "importance": 0.3470997503705836,
+      "correlation": 0.1569616578511987,
+      "required": true
+    },
+    {
+      "rank": 13,
+      "tag_name": "REHEAT_TEMP_HRH",
+      "importance": 0.3222729310965312,
+      "correlation": 0.0805609099999404,
+      "required": true
+    },
+    {
+      "rank": 14,
+      "tag_name": "MS_TEMPERATURE",
+      "importance": 0.3088959889625371,
+      "correlation": 0.1124906928558168,
+      "required": true
+    },
+    {
+      "rank": 15,
+      "tag_name": "SHAFT_VIB_HP_REAR-X",
+      "importance": 0.3084212771521125,
+      "correlation": 0.2198226325706318,
+      "required": true
+    },
+    {
+      "rank": 16,
+      "tag_name": "BEARING_VIB_HP_FRONT-Y",
+      "importance": 0.3078364628317417,
+      "correlation": 0.0300020236949698,
+      "required": false
+    },
+    {
+      "rank": 17,
+      "tag_name": "SHAFT_VIB._HP_FRONT-X",
+      "importance": 0.2917061893303823,
+      "correlation": 0.3380503248334522,
+      "required": false
+    },
+    {
+      "rank": 18,
+      "tag_name": "BEARING_VIB_HP_REAR-X",
+      "importance": 0.2815900979100651,
+      "correlation": 0.070016275856142,
+      "required": false
+    }
+  ],
+  "minimum_required": 15,
+  "total_available": 18,
+  "target_column": "TURBINE_LOADMW"
+}

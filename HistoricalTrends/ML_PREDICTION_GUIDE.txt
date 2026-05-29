@@ -1,0 +1,319 @@
+=============================================================================
+               ML-BASED PREDICTIVE INTERPOLATION SYSTEM
+                    For Power Plant Missing Data
+=============================================================================
+
+OVERVIEW:
+---------
+This system uses Machine Learning models to PREDICT missing data trends,
+not just simple interpolation. It compares multiple models and lets YOU
+choose which prediction fits your data best.
+
+The system is FULLY ASYNCHRONOUS - predictions run in background threads,
+so your UI remains responsive even for large datasets.
+
+=============================================================================
+                        AVAILABLE ML MODELS
+=============================================================================
+
+1. FFT (Fourier Transform) ⭐ RECOMMENDED FOR POWER PLANTS
+   --------------------------------------------------------
+   - Best for: Cyclic/periodic data (turbine cycles, load patterns)
+   - How it works: Identifies frequency patterns in your data
+   - Confidence: 85%
+   - Speed: Fast
+   - Use when: Data has regular cycles (daily, weekly patterns)
+   
+   Example: Turbine load follows daily pattern - FFT detects this
+
+2. ARIMA (Auto-Regressive Integrated Moving Average)
+   ---------------------------------------------------
+   - Best for: Trending data with temporal dependencies
+   - How it works: Uses past values to predict future
+   - Confidence: 80%
+   - Speed: Medium
+   - Use when: Data has trends (increasing/decreasing over time)
+   
+   Example: Temperature gradually rising over shift
+
+3. Prophet (Facebook's Time Series Model)
+   -----------------------------------------
+   - Best for: Seasonal patterns with multiple cycles
+   - How it works: Detects daily, weekly, yearly seasonality
+   - Confidence: 75%
+   - Speed: Slow
+   - Use when: Complex seasonal patterns exist
+   
+   Example: Weekly maintenance patterns, seasonal efficiency
+
+4. Exponential Smoothing
+   ------------------------
+   - Best for: Smooth, gradual trends
+   - How it works: Weighted average giving more weight to recent data
+   - Confidence: 78%
+   - Speed: Fast
+   - Use when: Data changes smoothly without sharp jumps
+   
+   Example: Slowly changing steam pressure
+
+5. Polynomial Regression
+   ------------------------
+   - Best for: Curved trends
+   - How it works: Fits polynomial curve to data
+   - Confidence: 70%
+   - Speed: Very Fast
+   - Use when: Data follows curved pattern
+   
+   Example: Efficiency curve during startup
+
+6. Random Forest
+   ---------------
+   - Best for: Complex non-linear patterns
+   - How it works: Multiple decision trees ensemble
+   - Confidence: 65%
+   - Speed: Medium
+   - Use when: Pattern is complex and unpredictable
+   
+   Example: Multiple interacting variables
+
+7. Linear Regression (Baseline)
+   ------------------------------
+   - Best for: Simple straight-line trends
+   - How it works: Fits straight line
+   - Confidence: 60%
+   - Speed: Very Fast
+   - Use when: Quick baseline prediction needed
+
+=============================================================================
+                        HOW TO USE THE SYSTEM
+=============================================================================
+
+STEP 1: SELECT DATA
+-------------------
+1. Select date range
+2. Select tag(s) you want to predict
+3. Click "Load Trends" to see data with gaps
+
+STEP 2: START ML PREDICTION
+----------------------------
+1. Click "🔮 ML Predict Missing" button
+2. Modal opens showing:
+   - Selected tag
+   - Date range
+   - Available models
+
+STEP 3: CHOOSE MODELS TO COMPARE
+---------------------------------
+1. All models are pre-checked (FFT recommended)
+2. Uncheck models you don't want to test
+3. Click "🚀 Run Comparison"
+
+STEP 4: WAIT FOR RESULTS (SYSTEM STAYS RESPONSIVE)
+---------------------------------------------------
+1. Progress bar shows status
+2. System runs in background
+3. You can still use UI while waiting
+4. Typically takes 5-30 seconds depending on data size
+
+STEP 5: REVIEW MODEL PREDICTIONS
+---------------------------------
+System shows comparison cards for each model:
+
+┌──────────────────────────────────┐
+│ FFT                     ⭐        │
+│ Predicted Points: 1,234         │
+│ Confidence: 85%                 │
+│ [Mini Preview Chart]            │
+│ ✓ Select This Model             │
+└──────────────────────────────────┘
+
+Each card shows:
+- Model name with color coding
+- Number of predicted points
+- Confidence level
+- Preview chart of predictions
+- Select button
+
+STEP 6: CHOOSE YOUR MODEL
+--------------------------
+1. Review all preview charts
+2. Click "✓ Select This Model" on your preferred model
+3. Confirm selection
+4. System saves predictions to cache
+
+STEP 7: VIEW COMBINED TREND
+----------------------------
+1. After confirmation, view mode switches to "PREDICTED DATA"
+2. Chart shows:
+   - ACTUAL DATA: Original color (solid line)
+   - PREDICTED DATA: Lighter color (dashed line or fill)
+3. Toggle "👁️ View Mode" button to switch between:
+   - RAW DATA (original only)
+   - PREDICTED DATA (original + predictions)
+
+=============================================================================
+                     COLOR CODING EXPLANATION
+=============================================================================
+
+Each model has its own color for easy identification:
+
+FFT:            🟡 Gold (#ffd700) - Recommended
+ARIMA:          🔵 Cyan (#00d4ff)
+Prophet:        🟣 Purple (#667eea)
+Exponential:    🟠 Orange (#ff9500)
+Polynomial:     🟢 Green (#34c759)
+Random Forest:  🔴 Red (#ff3b30)
+Linear:         ⚫ Gray (#888888)
+
+When viewing combined trend:
+- Solid line = Actual measured data
+- Dashed/lighter line = ML predicted data
+- Different colors = Different models (if comparing)
+
+=============================================================================
+                        TECHNICAL DETAILS
+=============================================================================
+
+ASYNCHRONOUS PROCESSING:
+------------------------
+- All predictions run in background Python threads
+- Frontend polls backend every 1 second for status
+- Progress bar updates in real-time
+- UI never freezes or becomes unresponsive
+
+DATA FLOW:
+----------
+1. Frontend requests comparison
+2. Backend creates task ID
+3. Background thread starts prediction
+4. Frontend polls /api/prediction/status/{task_id}
+5. When complete, results displayed
+6. User selects model
+7. Predictions saved to prediction_cache.parquet
+
+FILE STRUCTURE:
+---------------
+- Original data: D:/OpcLogs/Data/*.parquet (NEVER MODIFIED)
+- Predictions: D:/OpcLogs/Data/prediction_cache.parquet
+- Metadata: D:/OpcLogs/Data/prediction_metadata.json
+
+CACHE STRUCTURE:
+----------------
+prediction_cache.parquet columns:
+- Timestamp: Time of predicted point
+- PredictedValue: ML-predicted value
+- OriginalValue: null (was missing)
+- Model: Which model generated this
+- TagId: Tag name
+- Confidence: Model confidence (0-1)
+- CreatedAt: When prediction was made
+- UserConfirmed: true (user selected this)
+
+METADATA TRACKING:
+------------------
+prediction_metadata.json stores:
+- Which models were used
+- When predictions were made
+- How many points predicted per tag
+- User confirmation status
+
+=============================================================================
+                        EXAMPLE WORKFLOW
+=============================================================================
+
+SCENARIO: Turbine Load (LOAD_MW) has 500 missing points over 3 days
+
+1. User selects LOAD_MW tag, 3-day range
+2. Loads trends → sees gaps in chart
+3. Clicks "🔮 ML Predict Missing"
+4. Modal shows 7 available models
+5. Keeps FFT, ARIMA, Prophet checked (3 models)
+6. Clicks "Run Comparison"
+7. Progress: "Running predictions... 33%... 66%... 100%"
+8. Results show:
+
+   FFT:        450 predicted points, 85% confidence, smooth cycle
+   ARIMA:      450 predicted points, 80% confidence, trending
+   Prophet:    450 predicted points, 75% confidence, seasonal
+
+9. User reviews preview charts
+10. Selects FFT (best for cyclic load)
+11. Confirms → 450 points saved
+12. Chart updates showing:
+    - Solid gold line: Actual load data
+    - Dashed gold line: FFT predicted load
+13. View mode button shows "👁️ PREDICTED DATA"
+14. User can toggle back to "👁️ RAW DATA" anytime
+
+=============================================================================
+                        PERFORMANCE NOTES
+=============================================================================
+
+PREDICTION TIME:
+----------------
+- Small gaps (< 100 points): 2-5 seconds
+- Medium gaps (100-1000 points): 5-15 seconds
+- Large gaps (1000+ points): 15-30 seconds
+
+TIME PER MODEL:
+---------------
+Linear:         < 1 second
+Polynomial:     < 1 second
+FFT:            1-3 seconds
+Exponential:    2-5 seconds
+Random Forest:  5-10 seconds
+ARIMA:          5-15 seconds
+Prophet:        10-30 seconds (slowest)
+
+RECOMMENDATION:
+---------------
+Start with 2-3 models (FFT + ARIMA + Linear) for quick comparison.
+If results aren't good, add Prophet or Random Forest.
+
+SYSTEM REQUIREMENTS:
+--------------------
+- Python packages: scipy, statsmodels, prophet, scikit-learn
+- Memory: 500MB+ for large datasets
+- CPU: Multi-core recommended for faster predictions
+
+=============================================================================
+                        BEST PRACTICES
+=============================================================================
+
+1. CHOOSE RIGHT MODEL FOR YOUR DATA:
+   - Cyclic patterns → FFT
+   - Trends → ARIMA
+   - Seasonal → Prophet
+   - Smooth → Exponential
+   - Unknown → Try all, compare
+
+2. VALIDATE PREDICTIONS:
+   - Don't blindly trust ML - review preview charts
+   - Check if prediction makes sense
+   - Compare multiple models
+   - Use domain knowledge
+
+3. CONTEXT MATTERS:
+   - System uses 100 points before/after gap for prediction
+   - Larger context = better prediction
+   - Very long gaps = less reliable
+
+4. SAVE INCREMENTALLY:
+   - Predict small sections first
+   - Validate before predicting large gaps
+   - Can always revert to raw data
+
+5. TOGGLE VIEW MODE:
+   - Default view: RAW DATA
+   - Only enable PREDICTED when needed
+   - Compare side-by-side
+
+=============================================================================
+
+QUESTIONS?
+----------
+- Check prediction_metadata.json for history
+- View cache statistics in /api/prediction/stats
+- Check console logs for detailed model performance
+
+=============================================================================

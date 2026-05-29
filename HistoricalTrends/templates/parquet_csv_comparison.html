@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parquet vs CSV Comparison</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .panel h2 {
+            margin-bottom: 20px;
+            color: #3498db;
+        }
+
+        .file-selectors {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        select, input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.9);
+            color: #000;
+            font-size: 14px;
+        }
+
+        select option {
+            background: #fff;
+            color: #000;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .summary-card {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .summary-card h3 {
+            color: #3498db;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .summary-card p {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .summary-card.match {
+            border: 2px solid #2ecc71;
+        }
+
+        .summary-card.mismatch {
+            border: 2px solid #e74c3c;
+        }
+
+        .comparison-table {
+            overflow-x: auto;
+            max-height: 600px;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        th {
+            background: rgba(52, 152, 219, 0.3);
+            padding: 12px;
+            text-align: left;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        tr:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .match-row {
+            background: rgba(46, 204, 113, 0.2);
+        }
+
+        .mismatch-row {
+            background: rgba(231, 76, 60, 0.2);
+        }
+
+        .diff-highlight {
+            background: rgba(241, 196, 15, 0.3);
+            font-weight: bold;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+        }
+
+        .error {
+            background: rgba(220, 38, 38, 0.3);
+            color: #fca5a5;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .success {
+            background: rgba(34, 197, 94, 0.3);
+            color: #86efac;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚖️ Parquet vs CSV Comparison Tool</h1>
+
+        <!-- File Selection Panel -->
+        <div class="panel">
+            <h2>📁 Select Files to Compare</h2>
+            <div class="file-selectors">
+                <div>
+                    <h3>Parquet File (From D:\OpcLogs\Data)</h3>
+                    <div class="form-group">
+                        <label for="parquetSelect">Select Parquet File:</label>
+                        <select id="parquetSelect">
+                            <option value="">-- Select a parquet file --</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <h3>CSV File</h3>
+                    <div class="form-group">
+                        <label for="csvSelect">Select CSV File (from same directory):</label>
+                        <select id="csvSelect">
+                            <option value="">-- Select a CSV file --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="csvUpload">Or Upload CSV File:</label>
+                        <input type="file" id="csvUpload" accept=".csv">
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="compareFiles()">🔍 Compare Files (Side-by-Side)</button>
+        </div>
+
+        <!-- Comparison Summary Panel -->
+        <div class="panel" id="summaryPanel" style="display: none;">
+            <h2>📊 Comparison Summary</h2>
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <h3>Parquet Rows</h3>
+                    <p id="parquetRows">0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>CSV Rows</h3>
+                    <p id="csvRows">0</p>
+                </div>
+                <div class="summary-card">
+                    <h3>Common Rows</h3>
+                    <p id="commonRows">0</p>
+                </div>
+                <div class="summary-card match">
+                    <h3>✅ Matching Rows</h3>
+                    <p id="matchingRows">0</p>
+                </div>
+                <div class="summary-card mismatch">
+                    <h3>❌ Value Mismatches</h3>
+                    <p id="mismatchCount">0</p>
+                </div>
+                <div class="summary-card mismatch">
+                    <h3>⚠️ Only in Parquet</h3>
+                    <p id="parquetOnlyCount">0</p>
+                </div>
+                <div class="summary-card mismatch">
+                    <h3>⚠️ Only in CSV</h3>
+                    <p id="csvOnlyCount">0</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mismatches Table -->
+        <div class="panel" id="mismatchPanel" style="display: none;">
+            <h2>❌ Value Mismatches (First 50)</h2>
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>RowId</th>
+                            <th>TagId</th>
+                            <th>Timestamp</th>
+                            <th>Parquet Value</th>
+                            <th>CSV Value</th>
+                            <th>Parquet Quality</th>
+                            <th>CSV Quality</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mismatchTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Rows Only in Parquet -->
+        <div class="panel" id="parquetOnlyPanel" style="display: none;">
+            <h2>📄 Rows Only in Parquet (Sample)</h2>
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>RowId</th>
+                            <th>TagId</th>
+                            <th>Timestamp</th>
+                            <th>Value</th>
+                            <th>Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody id="parquetOnlyTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Rows Only in CSV -->
+        <div class="panel" id="csvOnlyPanel" style="display: none;">
+            <h2>📄 Rows Only in CSV (Sample)</h2>
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>RowId</th>
+                            <th>TagId</th>
+                            <th>Timestamp</th>
+                            <th>Value</th>
+                            <th>Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody id="csvOnlyTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="messageArea"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:5003/api';
+        let uploadedCsvContent = null;
+
+        // Load file lists on page load
+        window.onload = () => {
+            loadParquetFiles();
+            loadCsvFiles();
+        };
+
+        async function loadParquetFiles() {
+            try {
+                const response = await fetch(`${API_BASE}/parquet/files`);
+                const result = await response.json();
+
+                if (result.success) {
+                    const select = document.getElementById('parquetSelect');
+                    select.innerHTML = '<option value="">-- Select a parquet file --</option>';
+
+                    result.files.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file.name;
+                        option.textContent = `${file.name} (${file.size_mb} MB)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading parquet files:', error);
+            }
+        }
+
+        async function loadCsvFiles() {
+            try {
+                const response = await fetch(`${API_BASE}/parquet/files`);
+                const result = await response.json();
+
+                if (result.success) {
+                    const select = document.getElementById('csvSelect');
+                    select.innerHTML = '<option value="">-- Select a CSV file --</option>';
+
+                    // Filter for CSV files (converted ones)
+                    const csvFiles = result.files.filter(f => f.name.endsWith('.csv'));
+                    
+                    csvFiles.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file.name;
+                        option.textContent = `${file.name} (${file.size_mb} MB)`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading CSV files:', error);
+            }
+        }
+
+        // Handle CSV file upload
+        document.getElementById('csvUpload').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    uploadedCsvContent = event.target.result;
+                    showMessage(`✓ CSV file "${file.name}" loaded`, 'success');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        async function compareFiles() {
+            const parquetFilename = document.getElementById('parquetSelect').value;
+            const csvFilename = document.getElementById('csvSelect').value;
+
+            if (!parquetFilename) {
+                showMessage('Please select a parquet file', 'error');
+                return;
+            }
+
+            if (!csvFilename && !uploadedCsvContent) {
+                showMessage('Please select or upload a CSV file', 'error');
+                return;
+            }
+
+            try {
+                showMessage('Comparing files...', 'loading');
+
+                const requestBody = {
+                    parquet_filename: parquetFilename
+                };
+
+                if (csvFilename) {
+                    requestBody.csv_filename = csvFilename;
+                } else if (uploadedCsvContent) {
+                    requestBody.csv_content = uploadedCsvContent;
+                }
+
+                const response = await fetch(`${API_BASE}/compare_side_by_side`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    displayComparisonResults(result);
+                    showMessage('✓ Comparison completed', 'success');
+                } else {
+                    showMessage(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function displayComparisonResults(result) {
+            const summary = result.summary;
+
+            // Update summary cards
+            document.getElementById('parquetRows').textContent = summary.parquet_rows;
+            document.getElementById('csvRows').textContent = summary.csv_rows;
+            document.getElementById('commonRows').textContent = summary.common_rows;
+            document.getElementById('matchingRows').textContent = summary.matching_rows;
+            document.getElementById('mismatchCount').textContent = summary.value_mismatches;
+            document.getElementById('parquetOnlyCount').textContent = summary.rows_only_in_parquet;
+            document.getElementById('csvOnlyCount').textContent = summary.rows_only_in_csv;
+
+            document.getElementById('summaryPanel').style.display = 'block';
+
+            // Display mismatches
+            if (result.mismatches && result.mismatches.length > 0) {
+                displayMismatches(result.mismatches);
+                document.getElementById('mismatchPanel').style.display = 'block';
+            }
+
+            // Display parquet-only rows
+            if (result.parquet_only_sample && result.parquet_only_sample.length > 0) {
+                displayParquetOnly(result.parquet_only_sample);
+                document.getElementById('parquetOnlyPanel').style.display = 'block';
+            }
+
+            // Display CSV-only rows
+            if (result.csv_only_sample && result.csv_only_sample.length > 0) {
+                displayCsvOnly(result.csv_only_sample);
+                document.getElementById('csvOnlyPanel').style.display = 'block';
+            }
+        }
+
+        function displayMismatches(mismatches) {
+            const tbody = document.getElementById('mismatchTableBody');
+            tbody.innerHTML = '';
+
+            mismatches.forEach(mismatch => {
+                const tr = document.createElement('tr');
+                tr.className = 'mismatch-row';
+
+                const valueClass = !mismatch.Value_Match ? 'diff-highlight' : '';
+                const qualityClass = !mismatch.Quality_Match ? 'diff-highlight' : '';
+
+                tr.innerHTML = `
+                    <td>${mismatch.RowId || 'N/A'}</td>
+                    <td>${mismatch.TagId || 'N/A'}</td>
+                    <td>${mismatch.Timestamp || 'N/A'}</td>
+                    <td class="${valueClass}">${mismatch.Parquet_Value || ''}</td>
+                    <td class="${valueClass}">${mismatch.CSV_Value || ''}</td>
+                    <td class="${qualityClass}">${mismatch.Parquet_Quality || ''}</td>
+                    <td class="${qualityClass}">${mismatch.CSV_Quality || ''}</td>
+                    <td>
+                        ${mismatch.Value_Match ? '✅' : '❌'} Value
+                        ${mismatch.Quality_Match ? '✅' : '❌'} Quality
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function displayParquetOnly(rows) {
+            const tbody = document.getElementById('parquetOnlyTableBody');
+            tbody.innerHTML = '';
+
+            rows.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = 'mismatch-row';
+                tr.innerHTML = `
+                    <td>${row.RowId || 'N/A'}</td>
+                    <td>${row.TagId || 'N/A'}</td>
+                    <td>${row.Timestamp || 'N/A'}</td>
+                    <td>${row.Value || ''}</td>
+                    <td>${row.Quality || ''}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function displayCsvOnly(rows) {
+            const tbody = document.getElementById('csvOnlyTableBody');
+            tbody.innerHTML = '';
+
+            rows.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = 'mismatch-row';
+                tr.innerHTML = `
+                    <td>${row.RowId || 'N/A'}</td>
+                    <td>${row.TagId || 'N/A'}</td>
+                    <td>${row.Timestamp || 'N/A'}</td>
+                    <td>${row.Value || ''}</td>
+                    <td>${row.Quality || ''}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function showMessage(message, type) {
+            const messageArea = document.getElementById('messageArea');
+            messageArea.innerHTML = `<div class="${type}">${message}</div>`;
+            
+            if (type === 'success' || type === 'error') {
+                setTimeout(() => {
+                    messageArea.innerHTML = '';
+                }, 5000);
+            }
+        }
+    </script>
+</body>
+</html>

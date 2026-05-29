@@ -1,0 +1,123 @@
+{
+  "_config_info": {
+    "description": "Central configuration for Advanced BI Dashboard with MTBF/MTTR Tracking",
+    "version": "2.0",
+    "last_updated": "2025-11-21T00:00:00"
+  },
+  "global_settings": {
+    "plant_name": "Power Plant 270MW",
+    "location": "Plant Location",
+    "timezone": "UTC",
+    "default_rated_capacity_fallback": 250,
+    "auto_detect_capacity_multiplier": 1.1,
+    "baseline_window_days": 30,
+    "baseline_top_percentile": 10,
+    "stability_thresholds": {
+      "excellent": 0.95,
+      "good": 0.85,
+      "fair": 0.70,
+      "poor": 0.50
+    },
+    "recommendation_thresholds": {
+      "stability_index_min": 0.7,
+      "loss_factor_max": 0.15,
+      "availability_min": 85
+    }
+  },
+  "downtime_tracking": {
+    "enabled": true,
+    "zero_load_threshold_mw": 1.0,
+    "null_value_as_downtime": true,
+    "min_downtime_duration_minutes": 5,
+    "max_gap_minutes": 10,
+    "storage_directory": "D:/OpcLogs/Downtime",
+    "file_format": "parquet",
+    "partition_by": "year_month",
+    "retention_days": 365
+  },
+  "mtbf_mttr_config": {
+    "enabled": true,
+    "exclude_planned_maintenance_from_mtbf": true,
+    "time_unit": "hours",
+    "calculation_method": {
+      "mtbf": "total_uptime / number_of_failures",
+      "mttr": "total_downtime / number_of_failures"
+    },
+    "failure_categories": [
+      "Planned Maintenance",
+      "Unplanned Breakdown",
+      "Grid Failure",
+      "Boiler Tube Leak",
+      "Turbine Trip",
+      "Coal Supply Issue",
+      "Auxiliary System Failure",
+      "Emergency Shutdown",
+      "Instrumentation Failure",
+      "Other"
+    ],
+    "require_failure_reason": true,
+    "auto_detect_abnormal_parameters": true
+  },
+  "abnormal_parameter_detection": {
+    "enabled": true,
+    "detection_window_minutes": 30,
+    "parameters_to_monitor": [
+      "TOTAL_COAL_FLOW",
+      "MAIN_STEAM_PRESSURE",
+      "MAIN_STEAM_TEMP",
+      "FEED_WATER_FLOW",
+      "CONDENSER_VACUUM"
+    ],
+    "abnormal_conditions": {
+      "sudden_drop_percentage": 30,
+      "sudden_spike_percentage": 30,
+      "time_window_minutes": 5,
+      "std_dev_multiplier": 3.0,
+      "min_data_points": 10
+    }
+  },
+  "tags": {
+    "TURBINE_LOADMW": {
+      "display_name": "Turbine Load",
+      "unit": "MW",
+      "rated_capacity": 270,
+      "target_production": {
+        "value": null,
+        "source": "machine",
+        "user_defined": false
+      },
+      "baseline_performance": null,
+      "baseline_calculated_date": null,
+      "baseline_sample_size": null,
+      "last_updated": null,
+      "is_production_tag": true,
+      "thresholds": {
+        "critical_low": 50,
+        "warning_low": 100,
+        "warning_high": 280,
+        "critical_high": 300
+      }
+    },
+    "TOTAL_COAL_FLOW": {
+      "display_name": "Total Coal Flow",
+      "unit": "TPH",
+      "rated_capacity": null,
+      "target_production": {
+        "value": null,
+        "source": "machine",
+        "user_defined": false
+      },
+      "baseline_performance": null,
+      "baseline_calculated_date": null,
+      "baseline_sample_size": null,
+      "last_updated": null,
+      "is_production_tag": false,
+      "thresholds": {
+        "critical_low": 0,
+        "warning_low": 10,
+        "warning_high": 200,
+        "critical_high": 250
+      }
+    }
+  }
+}

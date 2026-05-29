@@ -1,0 +1,56 @@
+{
+  "primary_model": {
+    "name": "RandomForestModel",
+    "file": "trained_models/RandomForestModel_v1.pkl",
+    "mae": 0.0740870015856982,
+    "rmse": 2.364754920251161,
+    "r2": 0.9983253800488622,
+    "mape": 0.0442477598406148,
+    "samples": 8171,
+    "confidence_threshold": 0.85
+  },
+  "fallback_models": [
+    {
+      "name": "ProphetModel",
+      "file": "trained_models/ProphetModel_v1.pkl",
+      "mae": 56.057415544938685,
+      "use_if": "primary_model_fails"
+    },
+    {
+      "name": "EnsembleModel",
+      "file": "trained_models/EnsembleModel_v1.pkl",
+      "mae": 28.062221332659988,
+      "use_if": "primary_model_fails"
+    },
+    {
+      "name": "RandomForestModel",
+      "file": "trained_models/RandomForestModel_v1.pkl",
+      "mae": 0.0740870015856992,
+      "use_if": "primary_model_fails"
+    },
+    {
+      "name": "XGBoostModel",
+      "file": "trained_models/XGBoostModel_v1.pkl",
+      "mae": 0.0776908790944187,
+      "use_if": "primary_model_fails"
+    },
+    {
+      "name": "LightGBMModel",
+      "file": "trained_models/LightGBMModel_v1.pkl",
+      "mae": 0.0826798394419481,
+      "use_if": "primary_model_fails"
+    },
+    {
+      "name": "ProphetModel",
+      "file": "trained_models/ProphetModel_v1.pkl",
+      "mae": 56.057415544938685,
+      "use_if": "primary_model_fails"
+    },
+    {
+      "name": "EnsembleModel",
+      "file": "trained_models/EnsembleModel_v1.pkl",
+      "mae": 14.05561862048233,
+      "use_if": "primary_model_fails"
+    }
+  ]
+}

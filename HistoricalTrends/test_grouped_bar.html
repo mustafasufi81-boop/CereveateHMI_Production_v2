@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grouped Bar Test</title>
+    <script src="https://cdn.plot.ly/plotly-2.18.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        #testContainer {
+            width: 100%;
+            height: 600px;
+            background: #2a2a2a;
+            border: 2px solid #00ff88;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        .btn {
+            background: #00ff88;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 10px;
+        }
+        .btn:hover {
+            background: #00dd77;
+        }
+        #status {
+            background: #333;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Grouped Bar Chart Test</h1>
+    <div id="status">Status: Ready to test...</div>
+    <button class="btn" onclick="loadDataAndTest()">Load Data & Test Grouped Bar</button>
+    <button class="btn" onclick="clearConsole()">Clear Console</button>
+    <div id="testContainer"></div>
+
+    <script src="static/modules/bi_analytics.js"></script>
+    
+    <script>
+        function clearConsole() {
+            console.clear();
+            document.getElementById('status').textContent = 'Status: Console cleared';
+        }
+
+        async function loadDataAndTest() {
+            const statusEl = document.getElementById('status');
+            const container = document.getElementById('testContainer');
+            
+            try {
+                statusEl.textContent = 'Status: Loading data...';
+                console.log('='.repeat(80));
+                console.log('GROUPED BAR TEST - START');
+                console.log('='.repeat(80));
+                
+                // Load tags first
+                const tagsResponse = await fetch('/api/tags');
+                const tagsData = await tagsResponse.json();
+                console.log('✅ Tags loaded:', tagsData);
+                
+                if (!tagsData.success || tagsData.tags.length === 0) {
+                    throw new Error('No tags available');
+                }
+                
+                const selectedTags = tagsData.tags.slice(0, 5); // First 5 tags
+                console.log('📌 Selected tags:', selectedTags);
+                
+                // Load data for March 2025 (known good date range)
+                statusEl.textContent = 'Status: Fetching data...';
+                const params = new URLSearchParams({
+                    start_date: '2025-03-01',
+                    end_date: '2025-03-20',
+                    tags: JSON.stringify(selectedTags)
+                });
+                
+                const dataResponse = await fetch(`/api/data?${params}`);
+                const dataResult = await dataResponse.json();
+                console.log('✅ Data loaded:', {
+                    success: dataResult.success,
+                    count: dataResult.count,
+                    dataLength: dataResult.data?.length,
+                    firstRow: dataResult.data?.[0]
+                });
+                
+                if (!dataResult.success || dataResult.data.length === 0) {
+                    throw new Error('No data returned');
+                }
+                
+                // Initialize BI Analytics module
+                statusEl.textContent = 'Status: Initializing BI Analytics...';
+                window.BIAnalytics.initialize(dataResult.data, selectedTags);
+                console.log('✅ BI Analytics initialized');
+                console.log('   currentData length:', window.BIAnalytics.currentData?.length);
+                console.log('   xAxisTags:', window.BIAnalytics.xAxisTags);
+                console.log('   yAxisTags:', window.BIAnalytics.yAxisTags);
+                
+                // Render Grouped Bar Chart
+                statusEl.textContent = 'Status: Rendering Grouped Bar Chart...';
+                console.log('\n🎨 Calling renderGroupedBarChart...\n');
+                
+                await window.BIAnalytics.renderGroupedBarChart(container);
+                
+                console.log('\n✅ Render complete!');
+                console.log('='.repeat(80));
+                statusEl.textContent = 'Status: ✅ Test complete! Check console for debug logs.';
+                
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+                statusEl.textContent = `Status: ❌ Error - ${error.message}`;
+                container.innerHTML = `<p style="color: #ff6b6b; padding: 20px;">Error: ${error.message}</p>`;
+            }
+        }
+        
+        console.log('🧪 Test page loaded. Click "Load Data & Test Grouped Bar" to start.');
+        console.log('📋 This will:');
+        console.log('   1. Load available tags');
+        console.log('   2. Fetch data for March 2025');
+        console.log('   3. Initialize BI Analytics');
+        console.log('   4. Render Grouped Bar Chart');
+        console.log('   5. Show debug logs in console');
+    </script>
+</body>
+</html>
