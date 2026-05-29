@@ -122,4 +122,7 @@ public record SystemHealthSnapshot
     public int ActiveAlerts { get; init; }
     public int WarningCount { get; init; }
     public int ErrorCount { get; init; }
+    
+    // Gap 7: Startup invariant flag
+    public bool NoPlcConfigured { get; init; }
 }

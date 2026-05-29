@@ -91,19 +91,22 @@ def get_latest_tags(current_user):
         tag_filter = get_user_allowed_tag_filter()
         
         with container.historical_service.connection.cursor() as cursor:
-            # Get latest value for each enabled tag with plant/area info for filtering
+            # Use historian_latest_value for fast O(1) lookup per tag (updated in real-time by trigger)
             cursor.execute("""
-                SELECT DISTINCT ON (t.tag_id) 
+                SELECT 
                     t.tag_id,
                     t.plant,
                     t.area,
-                    h.value,
-                    h.quality,
-                    h.opc_timestamp
+                    t.data_type,
+                    lv.last_value_num,
+                    lv.last_value_text,
+                    lv.last_value_bool,
+                    lv.last_quality,
+                    lv.last_time
                 FROM historian_meta.tag_master t
-                LEFT JOIN historian_raw.historian_timeseries h ON h.tag_id = t.tag_id
+                LEFT JOIN historian_raw.historian_latest_value lv ON lv.tag_id = t.tag_id
                 WHERE t.enabled = true
-                ORDER BY t.tag_id, h.opc_timestamp DESC NULLS LAST
+                ORDER BY t.tag_id
             """)
             
             rows = cursor.fetchall()
@@ -117,12 +120,18 @@ def get_latest_tags(current_user):
                 if tag_filter is not None and not tag_filter(tag_id, plant, area):
                     continue
                 
-                if row['value'] is not None:
-                    tags[tag_id] = {
-                        'value': float(row['value']) if row['value'] is not None else 0,
-                        'quality': row['quality'] if row['quality'] else 'UNKNOWN',
-                        'timestamp': row['opc_timestamp'].isoformat() if row['opc_timestamp'] else datetime.now().isoformat()
-                    }
+                # Pick correct value field based on data type
+                raw_value = row['last_value_num']
+                if raw_value is None:
+                    raw_value = row['last_value_bool']
+                if raw_value is None:
+                    raw_value = row['last_value_text']
+                
+                tags[tag_id] = {
+                    'value': float(raw_value) if isinstance(raw_value, (int, float)) else raw_value,
+                    'quality': row['last_quality'] if row['last_quality'] else 'UNKNOWN',
+                    'timestamp': row['last_time'].isoformat() if row['last_time'] else datetime.now().isoformat()
+                }
             
             return jsonify({
                 'timestamp': datetime.now().isoformat(),

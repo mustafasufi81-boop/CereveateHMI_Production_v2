@@ -216,6 +216,14 @@ public class PlcDataLoggingService : BackgroundService
         }
 
         _logger.LogInformation("[PLC LOGGING] Created {Count} polling workers total", _workers.Count);
+
+        // Gap 7: Startup invariant — CRITICAL log if zero PLCs configured
+        if (_workers.Count == 0)
+        {
+            _logger.LogCritical("⚠️ STARTUP INVARIANT VIOLATION: Zero PLCs configured. No data will be collected. Check plc-config.json and database.");
+            // Note: HealthStatusService is not injected here. PlcController already exposes noPlcConfigured via /api/plc/connections.
+            // Health endpoint consumers should query /api/plc/connections to detect this condition.
+        }
     }
 
     /// <summary>

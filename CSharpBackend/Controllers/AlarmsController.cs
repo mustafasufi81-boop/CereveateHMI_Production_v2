@@ -258,13 +258,16 @@ public class AlarmsController : ControllerBase
         _logger.LogInformation("CLEAR request: key={Key} operator={Op} reason={Reason}",
             alarmKey, operatorName, body?.Reason ?? "none");
 
-        // forceAck=true: if alarm is still ACTIVE_UNACK, C# auto-ACKs then clears atomically.
-        // No race condition — both transitions happen within C#'s per-key semaphore.
+        // forceAck=false: operator MUST acknowledge before clearing.
+        // Allowing forceAck=true caused auto-ACK+clear even when value was still high,
+        // generating phantom CLEARED rows immediately followed by a new ACTIVE_UNACK.
+        try
+        {
         var success = await _stateManager.ClearAsync(
             alarmKey, operatorName, HttpContext.RequestAborted,
             reason:   body?.Reason,
             notes:    body?.Notes,
-            forceAck: true);
+            forceAck: false);
 
         if (!success)
         {
@@ -274,7 +277,7 @@ public class AlarmsController : ControllerBase
 
             return Conflict(new
             {
-                error         = $"Cannot clear alarm in state '{state.State}'",
+                error         = $"Cannot clear alarm in state '{state.State}' — alarm must be acknowledged first",
                 reason        = "INVALID_STATE",
                 alarm_key     = alarmKey,
                 current_state = state.State.ToString(),
@@ -282,6 +285,23 @@ public class AlarmsController : ControllerBase
         }
 
         return Ok(new { success = true, alarm_key = alarmKey, cleared_by = operatorName, event_type = "ALARM_CLEARED", new_state = "CLEARED" });
+        }
+        catch (AlarmClearBlockedException blocked)
+        {
+            _logger.LogWarning("CLEAR BLOCKED (value still high): {Key} live={Live:F3} sp={SP:F3}",
+                blocked.AlarmKey, blocked.LiveValue, blocked.Setpoint);
+            return UnprocessableEntity(new
+            {
+                success       = false,
+                error         = blocked.Message,
+                reason        = "VALUE_STILL_VIOLATING",
+                alarm_key     = blocked.AlarmKey,
+                tag_id        = blocked.TagId,
+                live_value    = blocked.LiveValue,
+                setpoint      = blocked.Setpoint,
+                is_high_alarm = blocked.IsHighAlarm,
+            });
+        }
     }
 
     // =========================================================

@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, send_file, make_response
 
 from container import container
 from services.report_service import ReportService
@@ -13,6 +13,14 @@ from utils.decorators import token_required
 logger = logging.getLogger(__name__)
 
 report_bp = Blueprint("report", __name__, url_prefix="/api/reports")
+
+
+def _add_no_cache_headers(response):
+    """Add headers to prevent report data caching - ensures fresh data on every request"""
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 def _has_area_access(user_id: int, is_admin: bool, plant: str, area: str) -> bool:
@@ -190,7 +198,8 @@ def get_daily_report(current_user):
         duration_ms = int((time.time() - started) * 1000)
         _log_generation("DAILY", ",".join(plants), ",".join(areas), report_date, current_user["user_id"], "JSON", len(data.get("rows", [])), duration_ms, "SUCCESS")
 
-        return jsonify(data), 200
+        response = make_response(jsonify(data), 200)
+        return _add_no_cache_headers(response)
     except Exception as ex:
         logger.exception(f"Daily report generation failed: {ex}")
         duration_ms = int((time.time() - started) * 1000)
@@ -356,8 +365,9 @@ def get_shift_report(current_user):
             source_id=source_id,
         )
         duration_ms = int((time.time() - started) * 1000)
-        _log_generation("SHIFT", plant, area, report_date, current_user["user_id"], "JSON", len(data.get("rows", [])), duration_ms, "SUCCESS")
-        return jsonify(data), 200
+        _log_generation("SHIFT", ",".join(plants), ",".join(areas), report_date, current_user["user_id"], "JSON", len(data.get("rows", [])), duration_ms, "SUCCESS")
+        response = make_response(jsonify(data), 200)
+        return _add_no_cache_headers(response)
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
     except Exception as ex:
@@ -491,7 +501,8 @@ def get_monthly_report(current_user):
 
         duration_ms = int((time.time() - started) * 1000)
         _log_generation("MONTHLY", plant, area, from_date, current_user["user_id"], "JSON", len(data.get("rows", [])), duration_ms, "SUCCESS")
-        return jsonify(data), 200
+        response = make_response(jsonify(data), 200)
+        return _add_no_cache_headers(response)
     except Exception as ex:
         logger.exception(f"Monthly report generation failed: {ex}")
         duration_ms = int((time.time() - started) * 1000)

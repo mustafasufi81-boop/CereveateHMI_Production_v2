@@ -14,11 +14,12 @@ const STALE_DATA_THRESHOLD_MS = 60_000;  // 60s — quiet plant won't trigger fa
 
 export interface MQTTHealth {
     socketConnected: boolean;
-    lastDataReceivedAt: number | null;   // epoch ms
+    lastDataReceivedAt: number | null;   // epoch ms — ONLY updated by fresh REST data
     dataIsStale: boolean;
     reconnectAttempts: number;
     flaskReachable: boolean | null;      // null = not yet checked
     flaskLastCheckedAt: number | null;
+    plcFreshnessMap: Map<string, number>; // per-PLC last REST fetch timestamp
 }
 
 type HealthChangeListener = (health: MQTTHealth) => void;
@@ -37,6 +38,7 @@ class MQTTWebSocketService {
         reconnectAttempts: 0,
         flaskReachable: null,
         flaskLastCheckedAt: null,
+        plcFreshnessMap: new Map(),
     };
     private _staleTimer: ReturnType<typeof setInterval> | null = null;
     private _flaskTimer: ReturnType<typeof setInterval> | null = null;
@@ -145,7 +147,13 @@ class MQTTWebSocketService {
 
         this.socket.on('connect', () => {
             console.info('✅ [Socket] Connected', { id: this.socket?.id });
-            this.updateHealth({ socketConnected: true, reconnectAttempts: 0 });
+            const now = Date.now();
+            this.updateHealth({ 
+                socketConnected: true, 
+                reconnectAttempts: 0,
+                lastDataReceivedAt: now,  // Initialize on connect to prevent initial "STALE"
+                dataIsStale: false 
+            });
             this.notifyConnectionChange(true);
         });
 
@@ -162,7 +170,13 @@ class MQTTWebSocketService {
 
         this.socket.io.on('reconnect', (attempt: number) => {
             console.info(`✅ [Socket] Reconnected after ${attempt} attempt(s)`);
-            this.updateHealth({ socketConnected: true, reconnectAttempts: 0 });
+            const now = Date.now();
+            this.updateHealth({ 
+                socketConnected: true, 
+                reconnectAttempts: 0,
+                lastDataReceivedAt: now,  // Reset stale timer on reconnect
+                dataIsStale: false 
+            });
             this.notifyConnectionChange(true);
         });
 
@@ -175,20 +189,21 @@ class MQTTWebSocketService {
         });
 
         // ── Data events ───────────────────────────────────────────────────
-        const trackAndEmit = (event: string, data: any) => {
-            this.updateHealth({ lastDataReceivedAt: Date.now(), dataIsStale: false });
+        // Gap 3 FIX: MQTT events NO LONGER update lastDataReceivedAt.
+        // Only REST API fetches (via notifyRestDataFresh()) stamp the timer.
+        const emitOnly = (event: string, data: any) => {
             this.emit(event, data);
         };
 
-        this.socket.on('mqtt_tag_update',  (d: any) => trackAndEmit('mqtt_tag_update',  d));
-        this.socket.on('mqtt_alarm',       (d: any) => trackAndEmit('mqtt_alarm',        d));
-        this.socket.on('mqtt_interlock',   (d: any) => trackAndEmit('mqtt_interlock',    d));
-        this.socket.on('tag_update',       (d: any) => trackAndEmit('tag_update',        d));
+        this.socket.on('mqtt_tag_update',  (d: any) => emitOnly('mqtt_tag_update',  d));
+        this.socket.on('mqtt_alarm',       (d: any) => emitOnly('mqtt_alarm',        d));
+        this.socket.on('mqtt_interlock',   (d: any) => emitOnly('mqtt_interlock',    d));
+        this.socket.on('tag_update',       (d: any) => emitOnly('tag_update',        d));
 
-        // Server heartbeat — resets stale watchdog even when no tag values change.
-        // Emitted every 30s by the Flask _heartbeat_emitter greenlet.
+        // Server heartbeat — resets stale timer to prevent false "DATA STALE" warnings
         this.socket.on('heartbeat', (_d: any) => {
-            this.updateHealth({ lastDataReceivedAt: Date.now(), dataIsStale: false });
+            const now = Date.now();
+            this.updateHealth({ lastDataReceivedAt: now, dataIsStale: false });
         });
 
         this.socket.on('connect_error', (error) => {
@@ -240,6 +255,16 @@ class MQTTWebSocketService {
 
     isConnected(): boolean {
         return this.socket?.connected || false;
+    }
+
+    /**
+     * Notify service that fresh REST data was received for a PLC.
+     * Gap 3: Only REST fetches update the stale timer, not MQTT.
+     */
+    notifyRestDataFresh(plcId: string): void {
+        const now = Date.now();
+        this._health.plcFreshnessMap.set(plcId, now);
+        this.updateHealth({ lastDataReceivedAt: now, dataIsStale: false });
     }
 
     /**

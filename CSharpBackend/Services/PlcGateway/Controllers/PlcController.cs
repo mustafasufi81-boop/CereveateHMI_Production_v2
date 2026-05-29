@@ -360,10 +360,35 @@ public class PlcController : ControllerBase
                 var isConnected = (hasPool && pool!.IsConnected) || (hasRuntime && runtime!.IsConnected);
                 var tagCount = hasPool ? pool!.TagCount : (hasRuntime ? runtime!.TagCount : (hasSaved ? saved!.Tags.Count : 0));
 
+                // Gap 8: PLC mode (RUN/FROZEN/UNKNOWN) from pool heuristic
+                var mode = hasPool ? pool!.Mode : "UNKNOWN";
+                var frozenForMs = hasPool ? pool!.FrozenForMs : 0L;
+                var lastValueChange = hasPool ? pool!.LastValueChangeTime : null;
+                var isFrozen = isConnected && mode == "FROZEN";
+
+                // Gap 7: sentinel entry for "no PLC configured"
+                var isNoPlcSentinel = plcId == "__NONE__";
+
+                // Build per-PLC alerts array for UI banner
+                var alerts = new List<object>();
+                if (isNoPlcSentinel)
+                {
+                    alerts.Add(new { level = "error", code = "NO_PLC_CONFIGURED", message = hasPool ? pool!.LastError : "No PLC configured" });
+                }
+                else if (!isConnected)
+                {
+                    alerts.Add(new { level = "error", code = "PLC_DISCONNECTED", message = hasPool ? pool!.LastError : (hasRuntime ? runtime!.LastError : "Disconnected") });
+                }
+                else if (isFrozen)
+                {
+                    alerts.Add(new { level = "warning", code = "PLC_FROZEN",
+                                     message = $"PLC connected but no tag value has changed for {frozenForMs / 1000}s — controller likely in PROGRAM mode or scan halted" });
+                }
+
                 return new
                 {
                     plcId = plcId,
-                    name = hasSaved ? saved!.Name : plcId,
+                    name = isNoPlcSentinel ? "(no PLC configured)" : (hasSaved ? saved!.Name : plcId),
                     protocol = hasRuntime ? runtime!.Protocol : (hasSaved ? saved!.Protocol : (hasPool ? "Rockwell" : "Unknown")),
                     ipAddress = hasRuntime ? runtime!.IpAddress : (hasSaved ? saved!.IpAddress : (hasPool ? "192.168.0.20" : "")),
                     port = hasRuntime ? runtime!.Port : (hasSaved ? saved!.Port : (hasPool ? 44818 : 0)),
@@ -375,6 +400,13 @@ public class PlcController : ControllerBase
                     consecutiveFailures = hasRuntime ? runtime!.ConsecutiveFailures : 0,
                     lastError = hasRuntime ? runtime!.LastError : (hasSaved ? saved!.LastError : (hasPool ? pool!.LastError : null)),
                     lastUpdate = hasPool ? pool!.LastUpdateTime : (hasRuntime ? runtime!.LastPollTime : (hasSaved ? saved!.LastStatusUpdate : (DateTime?)null)),
+                    // Gap 8: mode + freeze info
+                    mode = mode,
+                    frozenForMs = frozenForMs,
+                    lastValueChange = lastValueChange,
+                    // Gap 7: alerts surfaced to UI
+                    alerts = alerts,
+                    isNoPlcSentinel = isNoPlcSentinel,
                     // Extra info
                     slot = hasSaved ? saved!.Slot : 0,
                     enabled = hasSaved ? saved!.Enabled : true,
@@ -389,6 +421,8 @@ public class PlcController : ControllerBase
                 timestamp = DateTime.UtcNow,
                 totalCount = connections.Count,
                 connectedCount = connections.Count(c => c.isConnected),
+                frozenCount = connections.Count(c => c.mode == "FROZEN" && c.isConnected),
+                noPlcConfigured = connections.Any(c => c.isNoPlcSentinel),
                 connections
             });
         }

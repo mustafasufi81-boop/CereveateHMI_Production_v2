@@ -262,34 +262,25 @@ class AreaAccessService:
             raise
 
     def sync_from_tag_master(self):
-        """Add any plant/area combos present in tag_master but missing from plants_areas."""
+        """
+        Sync plants_areas with tag_master using trigger function.
+        - Adds new combinations from tag_master
+        - Marks orphans (no tags) as inactive
+        - Reactivates entries that regain tags
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor() as cur:
-                    # RULE: skip any tag that has no server_progid — we cannot display
-                    # or filter it meaningfully.  Also backfill server_progid on existing
-                    # rows that were synced before this rule existed.
-                    cur.execute("""
-                        INSERT INTO historian_meta.plants_areas
-                            (plant_code, area_code, plant, area, display_name, server_progid)
-                        SELECT DISTINCT
-                            UPPER(REGEXP_REPLACE(plant, '[^A-Za-z0-9]', '', 'g')),
-                            UPPER(REGEXP_REPLACE(area,  '[^A-Za-z0-9]', '', 'g')),
-                            plant, area,
-                            server_progid || ' › ' || plant || ' › ' || area,
-                            server_progid
-                        FROM historian_meta.tag_master
-                        WHERE plant IS NOT NULL
-                          AND area IS NOT NULL
-                          AND server_progid IS NOT NULL
-                          AND server_progid <> ''
-                        ON CONFLICT (plant_code, area_code, server_progid) DO UPDATE
-                            SET display_name = EXCLUDED.display_name,
-                                is_active    = true
-                    """)
-                    inserted = cur.rowcount
+                    # Call the trigger function that handles full sync logic
+                    cur.execute("SELECT historian_meta.sync_plants_areas_from_tags();")
+                    
+                    # Get count of active entries after sync
+                    cur.execute("SELECT COUNT(*) FROM historian_meta.plants_areas WHERE is_active = true")
+                    active_count = cur.fetchone()[0]
+                    
                     conn.commit()
-            return inserted
+                    logger.info(f"[AreaAccess] Sync complete: {active_count} active plants_areas entries")
+            return active_count
         except Exception as e:
             logger.error(f"[AreaAccess] sync_from_tag_master error: {e}")
             raise

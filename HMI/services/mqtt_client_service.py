@@ -320,7 +320,17 @@ class MQTTClientService:
         try:
             # Get active topics from mapper
             active_topics = self.topic_tag_mapper.get_active_topics()
-            
+
+            # Also add bare PLC-gateway topics: each server_progid IS the MQTT topic
+            # (C# PlcGateway publishes to topic = plcId exactly, e.g. "Rockwel_PLC_001")
+            plc_names = self.topic_tag_mapper.get_all_plc_names()
+            extra_bare_topics = [
+                {'topic_name': plc, 'qos': 1}
+                for plc in plc_names
+                if not any(t.get('topic_name') == plc for t in active_topics)
+            ]
+            active_topics = list(active_topics) + extra_bare_topics
+
             if not active_topics:
                 logger.warning("No active MQTT topics found in configuration")
                 return

@@ -384,7 +384,12 @@ class RBACService:
             raise
 
     def can_user_clear_alarm(self, user_id, alarm_category=None):
-        """Check if user can clear alarms (optionally for specific category)"""
+        """Check if user can clear alarms.
+        
+        Permission source: historian_meta.role_module_permissions (module='alarms', can_operate=true).
+        This is the table that is actually seeded by seed_default_module_permissions().
+        The legacy role_alarm_permissions table is NOT seeded and always returns False — do not use it.
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -398,33 +403,27 @@ class RBACService:
                     row = cur.fetchone()
                     if row and row['is_admin']:
                         return True  # Admins can always clear
-                    
-                    # Check role-based clear permission
-                    if alarm_category:
-                        cur.execute("""
-                            SELECT can_clear
-                            FROM historian_meta.role_alarm_permissions rap
-                            JOIN historian_meta.users u ON rap.role_id = u.role_id
-                            WHERE u.id = %s AND rap.alarm_category = %s
-                        """, (user_id, alarm_category))
-                    else:
-                        # Check if user can clear ANY alarm category
-                        cur.execute("""
-                            SELECT can_clear
-                            FROM historian_meta.role_alarm_permissions rap
-                            JOIN historian_meta.users u ON rap.role_id = u.role_id
-                            WHERE u.id = %s
-                            LIMIT 1
-                        """, (user_id,))
-                    
+
+                    # Check role_module_permissions (module='alarms', can_operate=true)
+                    # This is the correct table — seeded with can_operate=true for Engineer role.
+                    cur.execute("""
+                        SELECT rmp.can_operate
+                        FROM historian_meta.role_module_permissions rmp
+                        JOIN historian_meta.users u ON rmp.role_id = u.role_id
+                        WHERE u.id = %s AND rmp.module = 'alarms'
+                    """, (user_id,))
                     result = cur.fetchone()
-                    return result and result['can_clear'] if result else False
+                    return bool(result and result['can_operate'])
         except Exception as e:
             logger.error(f"Can clear alarm check failed: {e}")
             return False
 
     def requires_approval_to_clear_alarm(self, user_id, alarm_category=None):
-        """Check if user needs approval to clear alarms"""
+        """Check if user needs approval to clear alarms.
+        
+        Currently: approval is NOT required for any role (no approval workflow implemented).
+        Returns False so clears are not blocked waiting for non-existent approvals.
+        """
         try:
             with self._get_conn() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -439,28 +438,13 @@ class RBACService:
                     if row and row['is_admin']:
                         return False  # Admins don't need approval
                     
-                    # Check if approval required
-                    if alarm_category:
-                        cur.execute("""
-                            SELECT requires_approval_to_clear
-                            FROM historian_meta.role_alarm_permissions rap
-                            JOIN historian_meta.users u ON rap.role_id = u.role_id
-                            WHERE u.id = %s AND rap.alarm_category = %s
-                        """, (user_id, alarm_category))
-                    else:
-                        cur.execute("""
-                            SELECT requires_approval_to_clear
-                            FROM historian_meta.role_alarm_permissions rap
-                            JOIN historian_meta.users u ON rap.role_id = u.role_id
-                            WHERE u.id = %s
-                            LIMIT 1
-                        """, (user_id,))
-                    
-                    result = cur.fetchone()
-                    return result and result['requires_approval_to_clear'] if result else True
+                    # No approval workflow is implemented yet.
+                    # role_alarm_permissions.requires_approval_to_clear is an unseeded legacy column.
+                    # Return False so engineers/operators are not blocked.
+                    return False
         except Exception as e:
             logger.error(f"Approval check failed: {e}")
-            return True  # Default to requiring approval for safety
+            return False  # Default to NOT requiring approval (no workflow to approve with)
 
     # ==================== Available Plants/Areas ====================
 

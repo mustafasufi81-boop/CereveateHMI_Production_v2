@@ -4,6 +4,14 @@ Connects to EXISTING C# SignalR hub - NO CHANGES to C# services required
 NOW INCLUDES: MQTT Live Data Streaming
 """
 
+# ── Force UTF-8 stdout/stderr on Windows to prevent cp1252 UnicodeEncodeError crashes ──
+import sys as _sys
+import io as _io
+if hasattr(_sys.stdout, 'buffer'):
+    _sys.stdout = _io.TextIOWrapper(_sys.stdout.buffer, encoding='utf-8', errors='replace')
+if hasattr(_sys.stderr, 'buffer'):
+    _sys.stderr = _io.TextIOWrapper(_sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # ── Gevent monkey-patch MUST be first — before any stdlib/network imports ──
 from gevent import monkey as _monkey
 _monkey.patch_all()
@@ -373,10 +381,22 @@ def api_opc_plc_status():
     opc_connected = opc_data.get('status', '').lower() == 'connected'
     # C# returns { connections: [...], isConnected: bool } per PLC
     plcs = plc_data.get('connections', plc_data.get('plcs', []))
+    # Filter out the "no PLC configured" sentinel from per-PLC disconnect tally
+    # but still surface it at the top level.
     any_plc_disconnected = any(
         not p.get('isConnected', True)
         for p in plcs
-        if p.get('enabled', True)
+        if p.get('enabled', True) and not p.get('isNoPlcSentinel', False)
+    )
+    # Gap 8: any PLC connected but frozen (PROGRAM-mode / scan-halt)
+    any_plc_frozen = any(
+        p.get('isConnected', False) and (p.get('mode', '') == 'FROZEN')
+        for p in plcs
+        if not p.get('isNoPlcSentinel', False)
+    )
+    # Gap 7: explicit no-PLC-configured top-level state
+    no_plc_configured = bool(plc_data.get('noPlcConfigured', False)) or any(
+        p.get('isNoPlcSentinel', False) for p in plcs
     )
 
     return _jsonify({
@@ -398,10 +418,19 @@ def api_opc_plc_status():
                 'lastError': p.get('lastError', ''),
                 'tagCount':  p.get('tagCount', 0),
                 'lastUpdate': p.get('lastUpdate', ''),
+                # Gap 8 / Gap 7 passthrough
+                'mode':       p.get('mode', 'UNKNOWN'),
+                'frozenForMs': int(p.get('frozenForMs', 0) or 0),
+                'lastValueChange': p.get('lastValueChange', ''),
+                'alerts':     p.get('alerts', []) or [],
+                'isNoPlcSentinel': bool(p.get('isNoPlcSentinel', False)),
             }
             for p in plcs
         ],
         'anyPlcDisconnected': any_plc_disconnected,
+        'anyPlcFrozen': any_plc_frozen,
+        'noPlcConfigured': no_plc_configured,
+        'frozenCount': int(plc_data.get('frozenCount', 0) or 0),
         'backendReachable': len(errors) < 2,
         'errors': errors if errors else None,
     }), 200
@@ -641,15 +670,14 @@ def _seed_tag_cache_from_db():
         with db_pool.get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT DISTINCT ON (tag_id)
+                    SELECT
                         tag_id,
-                        value_num,
-                        value_text,
-                        quality,
-                        sample_time AS "timestamp"
-                    FROM historian_raw.historian_timeseries
-                    WHERE sample_time >= NOW() - INTERVAL '1 hour'
-                    ORDER BY tag_id, sample_time DESC
+                        last_value_num   AS value_num,
+                        last_value_text  AS value_text,
+                        last_quality     AS quality,
+                        last_time        AS "timestamp"
+                    FROM historian_raw.historian_latest_value
+                    WHERE last_time >= NOW() - INTERVAL '1 hour'
                 """)
                 rows = cur.fetchall()
         for row in rows:
@@ -661,23 +689,30 @@ def _seed_tag_cache_from_db():
             if not tag_id:
                 continue
             ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+            # Gap 6: DB-seeded values are historical, not live. Mark them as STALE
+            # and stamp age_ms from the row timestamp so React can render them
+            # greyed-out until the first real MQTT/REST update arrives. Without
+            # this the UI shows up-to-1-hour-old DB rows as if they were live.
+            seed_age_ms = _compute_age_ms(ts_str)
             if isinstance(row, dict):
                 latest_tag_values[tag_id] = {
                     'tag_id': tag_id,
                     'value_num': row.get('value_num'),
                     'value_text': row.get('value_text'),
-                    'quality': row.get('quality', 'G'),
+                    'quality': 'STALE',
                     'timestamp': ts_str,
                     'source': 'DB_SEED',
+                    'age_ms': seed_age_ms,
                 }
             else:
                 latest_tag_values[tag_id] = {
                     'tag_id': tag_id,
                     'value_num': value_num,
                     'value_text': value_text,
-                    'quality': quality or 'G',
+                    'quality': 'STALE',
                     'timestamp': ts_str,
                     'source': 'DB_SEED',
+                    'age_ms': seed_age_ms,
                 }
         logger.info("[STARTUP] Seeded latest_tag_values with %d tags from DB", len(latest_tag_values))
     except Exception as exc:
@@ -1546,10 +1581,24 @@ def _rest_fallback_poller():
         with _rest_lock:
             last_mqtt = _transport_state["last_mqtt_msg_at"]
             last_sig  = _transport_state["last_signalr_msg_at"]
+            last_plc_mqtt = _transport_state.get("last_plc_mqtt_msg_at")
 
         mqtt_ok = last_mqtt is not None and (now - last_mqtt) < _LIVENESS_TIMEOUT_S
         sig_ok  = last_sig  is not None and (now - last_sig)  < _LIVENESS_TIMEOUT_S
-        live_transport = mqtt_ok or sig_ok
+        # Gap 5: PLC-specific liveness — OPC MQTT traffic must NOT mask PLC silence.
+        # The REST fallback exists to recover PLC data; if PLC topic has been
+        # silent for >_LIVENESS_TIMEOUT_S we treat PLC transport as dead even
+        # when OPC MQTT is still publishing.
+        plc_mqtt_ok = last_plc_mqtt is not None and (now - last_plc_mqtt) < _LIVENESS_TIMEOUT_S
+        # Gap 5: Once a PLC MQTT message has ever been seen, require PLC topic to
+        # stay alive. OPC MQTT publishing alone no longer keeps fallback OFF.
+        # Before the first PLC message ever arrives we fall back to the legacy
+        # (mqtt_ok or sig_ok) rule to avoid noisy fallback at process start.
+        plc_history_known = last_plc_mqtt is not None
+        if plc_history_known:
+            live_transport = (mqtt_ok and plc_mqtt_ok) or sig_ok
+        else:
+            live_transport = mqtt_ok or sig_ok
 
         with _rest_lock:
             prev_mqtt = _transport_state["mqtt_alive"]

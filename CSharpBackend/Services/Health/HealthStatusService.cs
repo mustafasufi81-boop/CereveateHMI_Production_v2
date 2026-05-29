@@ -14,6 +14,7 @@ public interface IHealthStatusService
     void UpdateArchiverHealth(ArchiverHealth health);
     void UpdateResourceHealth(ResourceHealth health);
     void UpdateDispatcherHealth(DispatcherHealth health);
+    void SetNoPlcConfigured(bool flag);
 }
 
 public class HealthStatusService : IHealthStatusService
@@ -31,6 +32,7 @@ public class HealthStatusService : IHealthStatusService
     private volatile int _activeAlerts = 0;
     private volatile int _warningCount = 0;
     private volatile int _errorCount = 0;
+    private volatile bool _noPlcConfigured = false;
 
     public HealthStatusService(ILogger<HealthStatusService> logger)
     {
@@ -88,7 +90,8 @@ public class HealthStatusService : IHealthStatusService
             Dispatcher = _dispatcherHealth,
             ActiveAlerts = _activeAlerts,
             WarningCount = _warningCount,
-            ErrorCount = _errorCount
+            ErrorCount = _errorCount,
+            NoPlcConfigured = _noPlcConfigured
         };
     }
 
@@ -162,6 +165,14 @@ public class HealthStatusService : IHealthStatusService
     {
         _dispatcherHealth = health;
         // No alert recalc needed — dispatcher is informational only at this stage.
+    }
+
+    /// <summary>
+    /// Gap 7: Set startup invariant flag when zero PLCs are configured
+    /// </summary>
+    public void SetNoPlcConfigured(bool flag)
+    {
+        _noPlcConfigured = flag;
     }
 
     /// <summary>

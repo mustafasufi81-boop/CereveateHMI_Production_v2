@@ -24,7 +24,9 @@ const ShiftReport = () => {
   const location = useLocation();
   const { selection, updateSelection } = useTagSelection();
 
-  const [date, setDate] = useState<string>(selection.date);
+  // Always default to today's date, even if localStorage has old date
+  const today = toDateInput(new Date());
+  const [date, setDate] = useState<string>(today);
   const [selectedPlants, setSelectedPlants] = useState<string[]>(selection.selectedPlants || []);
   const [selectedAreas, setSelectedAreas] = useState<string[]>(selection.selectedAreas || []);
   const [selectedSource, setSelectedSource] = useState<string>("");
@@ -167,7 +169,9 @@ const ShiftReport = () => {
     enabled: Boolean(reportRequest),
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchOnMount: false,
+    refetchOnMount: true,
+    staleTime: 30000,
+    gcTime: 300000,
   });
 
   const totalRows = reportQuery.data?.pagination?.total_rows ?? 0;
@@ -251,7 +255,7 @@ const ShiftReport = () => {
   }, [reportQuery.data]);
 
   const onGenerate = () => {
-    if (reportQuery.isFetching || isDownloading) return;
+    if (isDownloading) return;
     if (!date || selectedPlants.length === 0 || selectedAreas.length === 0 || !selectedShift) {
       setErrorMsg("Select date, at least one plant, at least one area and shift.");
       return;
@@ -267,8 +271,14 @@ const ShiftReport = () => {
     });
   };
 
+  const onRefresh = () => {
+    if (!reportRequest) return;
+    setErrorMsg("");
+    reportQuery.refetch();
+  };
+
   const onDownload = async () => {
-    if (isDownloading || reportQuery.isFetching) return;
+    if (isDownloading) return;
     if (!date || selectedPlants.length === 0 || selectedAreas.length === 0 || !selectedShift) {
       setErrorMsg("Select date, at least one plant, at least one area and shift.");
       return;

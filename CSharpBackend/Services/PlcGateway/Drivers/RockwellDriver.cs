@@ -559,6 +559,81 @@ public class RockwellDriver : IPlcDriver
         return Task.FromResult(status);
     }
 
+    /// <summary>
+    /// Read the actual Rockwell ControlLogix controller mode via CIP.
+    ///
+    /// libplctag exposes the Rockwell "controller program status" byte via the
+    /// special tag name "@PROGRAM_STATUS".  The byte encodes the keyswitch position:
+    ///   0 = PROGRAM    1 = RUN       2 = TEST
+    ///   3 = REM_RUN    4 = REM_PROGRAM  5 = REM_TEST
+    ///
+    /// If the tag read fails for any reason (older firmware, wrong path, etc.)
+    /// the method returns "UNKNOWN" so the caller can fall back to the heuristic.
+    /// </summary>
+    public async Task<string> ReadControllerModeAsync()
+    {
+        if (!_isConnected || _config?.RockwellConfig == null)
+            return "UNKNOWN";
+
+        // Candidates — tried in order; first successful read wins.
+        // "@PROGRAM_STATUS" is the libplctag special tag for Rockwell controller mode.
+        // "@CTRL_STATUS" is an older/alternative name used by some firmware versions.
+        var candidates = new[] { "@PROGRAM_STATUS", "@CTRL_STATUS" };
+
+        foreach (var tagName in candidates)
+        {
+            Tag? modeTag = null;
+            try
+            {
+                modeTag = new Tag()
+                {
+                    Name         = tagName,
+                    Gateway      = _config.IpAddress,
+                    Path         = $"1,{_config.RockwellConfig.Path?.Replace("1,", "") ?? "0"}",
+                    PlcType      = PlcType.ControlLogix,
+                    Protocol     = libplctag.Protocol.ab_eip,
+                    Timeout      = TimeSpan.FromSeconds(2),
+                    ElementCount = 1,
+                    ElementSize  = 4
+                };
+
+                modeTag.Initialize();
+                if (modeTag.GetStatus() != libplctag.Status.Ok)
+                    continue;
+
+                modeTag.Read();
+                if (modeTag.GetStatus() != libplctag.Status.Ok)
+                    continue;
+
+                var modeInt = modeTag.GetInt32(0);
+                _logger.LogDebug("[ROCKWELL] {PlcId}: Controller mode byte = {Val} (tag={Tag})",
+                    _config.PlcId, modeInt, tagName);
+
+                return modeInt switch
+                {
+                    0 => "PROGRAM",
+                    1 => "RUN",
+                    2 => "TEST",
+                    3 => "REM_RUN",
+                    4 => "REM_PROGRAM",
+                    5 => "REM_TEST",
+                    _ => "UNKNOWN"
+                };
+            }
+            catch
+            {
+                // This candidate tag is not supported — try the next one.
+            }
+            finally
+            {
+                modeTag?.Dispose();
+            }
+        }
+
+        // No candidate worked — caller will use the value-change heuristic.
+        return "UNKNOWN";
+    }
+
     public Task DisconnectAsync()
     {
         try

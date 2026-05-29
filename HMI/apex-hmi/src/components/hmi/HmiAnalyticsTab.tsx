@@ -153,7 +153,7 @@ export function HmiAnalyticsTab({ onTagClick }: Props) {
         <div style={S.body}>
           {error && (
             <div style={{ padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid #EF4444", borderRadius: "6px", color: "#FCA5A5", fontSize: "11px" }}>
-              ⚠ {error} — Is the PEWS service running on port 6001?
+              ⚠ {error} — Service temporarily unavailable
             </div>
           )}
 

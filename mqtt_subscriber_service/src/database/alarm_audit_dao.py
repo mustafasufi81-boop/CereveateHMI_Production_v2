@@ -49,6 +49,7 @@ class AlarmAuditDAO:
                            action_notes: Optional[str] = None,
                            session_id: Optional[str] = None,
                            client_ip: Optional[str] = None,
+                           occurrence_id: Optional[str] = None,
                            metadata: Optional[Dict[str, Any]] = None) -> Optional[int]:
         """
         Insert a new audit trail record for an alarm action
@@ -77,8 +78,8 @@ class AlarmAuditDAO:
             INSERT INTO historian_raw.alarm_audit_trail 
             (event_id, tag_id, event_type, action_type, action_timestamp, performed_by,
              previous_state, new_state, alarm_priority, alarm_actual_value, alarm_setpoint,
-             action_reason, action_notes, session_id, client_ip, metadata)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             action_reason, action_notes, session_id, client_ip, occurrence_id, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING audit_id
         """
         
@@ -106,6 +107,7 @@ class AlarmAuditDAO:
                     action_notes,
                     session_id,
                     client_ip,
+                    occurrence_id,
                     metadata_json
                 ))
                 
@@ -129,8 +131,8 @@ class AlarmAuditDAO:
                     INSERT INTO historian_raw.alarm_audit_trail 
                     (event_id, tag_id, event_type, action_type, action_timestamp, performed_by,
                      previous_state, new_state, alarm_priority, alarm_actual_value, alarm_setpoint,
-                     action_reason, action_notes, session_id, client_ip, metadata)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     action_reason, action_notes, session_id, client_ip, occurrence_id, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """
                 
                 self.db.execute_query(insert_query, (
@@ -149,6 +151,7 @@ class AlarmAuditDAO:
                     action_notes,
                     session_id,
                     client_ip,
+                    occurrence_id,
                     metadata_json
                 ), fetch=False)
                 
@@ -274,10 +277,69 @@ class AlarmAuditDAO:
             logger.error(f"Failed to retrieve audit trail: {e}")
             return []
     
+    def count_audit_records(self,
+                           event_id: Optional[int] = None,
+                           tag_id: Optional[str] = None) -> int:
+        """
+        Count total audit records matching filters (for pagination)
+        
+        Args:
+            event_id: Filter by specific alarm event_id
+            tag_id: Filter by tag_id
+            
+        Returns:
+            Total count of matching records
+        """
+        where_clauses = []
+        params = []
+        
+        if event_id is not None:
+            where_clauses.append("event_id = %s")
+            params.append(event_id)
+        
+        if tag_id is not None:
+            where_clauses.append("tag_id = %s")
+            params.append(tag_id)
+        
+        where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        
+        query = f"""
+            SELECT COUNT(*)
+            FROM historian_raw.alarm_audit_trail
+            {where_sql}
+        """
+        
+        cursor = None
+        try:
+            if self.use_direct_connection:
+                cursor = self._get_cursor()
+                cursor.execute(query, tuple(params))
+                result = cursor.fetchone()
+                cursor.close()
+            else:
+                with self._get_cursor() as cur:
+                    cur.execute(query, tuple(params))
+                    result = cur.fetchone()
+            
+            count = result[0] if result else 0
+            logger.debug(f"Counted {count} audit records")
+            return count
+            
+        except Exception as e:
+            if self.use_direct_connection and cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            logger.error(f"Failed to count audit records: {e}")
+            return 0
+    
     def get_audit_trail_enhanced(self, 
                                 event_id: Optional[int] = None,
                                 tag_id: Optional[str] = None,
-                                limit: int = 100) -> List[Dict[str, Any]]:
+                                limit: int = 100,
+                                offset: int = 0,
+                                sort_order: str = 'desc') -> List[Dict[str, Any]]:
         """
         Get enhanced audit trail with tag names and timing calculations
         Uses the v_alarm_audit_trail view
@@ -286,6 +348,8 @@ class AlarmAuditDAO:
             event_id: Filter by specific alarm event_id
             tag_id: Filter by tag_id
             limit: Maximum number of records to return
+            offset: Number of records to skip (for pagination)
+            sort_order: 'desc' for newest first, 'asc' for oldest first (timeline view)
             
         Returns:
             List of enhanced audit records as dictionaries
@@ -302,6 +366,9 @@ class AlarmAuditDAO:
             params.append(tag_id)
         
         where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        
+        # Validate and set sort order
+        order_direction = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
         
         query = f"""
             SELECT 
@@ -331,14 +398,19 @@ class AlarmAuditDAO:
                 created_at,
                 minutes_since_previous_action,
                 minutes_since_raised,
-                response_time_seconds
+                response_time_seconds,
+                occurrence_id,
+                sequence_number,
+                performed_by_display_name,
+                performed_by_user_id
             FROM historian_raw.v_alarm_audit_trail
             {where_sql}
-            ORDER BY action_timestamp DESC
-            LIMIT %s
+            ORDER BY action_timestamp {order_direction}
+            LIMIT %s OFFSET %s
         """
         
         params.append(limit)
+        params.append(offset)
         
         cursor = None
         try:
@@ -386,7 +458,11 @@ class AlarmAuditDAO:
                         'created_at': row.get('created_at').isoformat() if row.get('created_at') else None,
                         'minutes_since_previous_action': float(row.get('minutes_since_previous_action')) if row.get('minutes_since_previous_action') else None,
                         'minutes_since_raised': float(row.get('minutes_since_raised')) if row.get('minutes_since_raised') else None,
-                        'response_time_seconds': float(row.get('response_time_seconds')) if row.get('response_time_seconds') else None
+                        'response_time_seconds': float(row.get('response_time_seconds')) if row.get('response_time_seconds') else None,
+                        'occurrence_id': str(row.get('occurrence_id')) if row.get('occurrence_id') else None,
+                        'sequence_number': row.get('sequence_number'),
+                        'performed_by_display_name': row.get('performed_by_display_name'),
+                        'performed_by_user_id': row.get('performed_by_user_id')
                     }
                 else:
                     # Tuple-based cursor
@@ -417,7 +493,11 @@ class AlarmAuditDAO:
                         'created_at': row[23].isoformat() if row[23] else None,
                         'minutes_since_previous_action': float(row[24]) if row[24] else None,
                         'minutes_since_raised': float(row[25]) if row[25] else None,
-                        'response_time_seconds': float(row[26]) if row[26] else None
+                        'response_time_seconds': float(row[26]) if row[26] else None,
+                        'occurrence_id': str(row[27]) if row[27] else None,
+                        'sequence_number': row[28],
+                        'performed_by_display_name': row[29],
+                        'performed_by_user_id': row[30]
                     }
                 audit_records.append(record)
             

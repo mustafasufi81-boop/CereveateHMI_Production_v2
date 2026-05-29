@@ -221,10 +221,15 @@ class TopicTagMapper:
             # opc/{server_progid}/tags/bulk — no DB row required.
             if not topic_info:
                 parts = topic.split('/')
-                # Expect exactly: ['opc', '<server_progid>', 'tags', 'bulk']
+                derived_progid = None
+                # Pattern 1: opc/{server_progid}/tags/bulk  (OPC DA topics)
                 if len(parts) == 4 and parts[0] == 'opc' and parts[2] == 'tags' and parts[3] == 'bulk':
                     derived_progid = parts[1]
-                    logger.info(f"[auto-derive] Topic '{topic}' → server_progid='{derived_progid}'")
+                # Pattern 2: bare topic IS the server_progid (PLC gateway topics, e.g. "Rockwel_PLC_001")
+                elif topic in self._plc_to_tags_map:
+                    derived_progid = topic
+                if derived_progid:
+                    logger.info(f"[auto-derive] Topic '{topic}' -> server_progid='{derived_progid}'")
                     topic_info = {'plc_name': derived_progid}
                     # Register it so next message is instant
                     self._topic_to_plc_map[topic] = {
@@ -259,6 +264,11 @@ class TopicTagMapper:
         """Get list of all active MQTT topics"""
         with self._lock:
             return list(self._topic_to_plc_map.values())
+
+    def get_all_plc_names(self) -> List[str]:
+        """Get all PLC/server_progid names from tag master mapping"""
+        with self._lock:
+            return list(self._plc_to_tags_map.keys())
     
     def get_tags_for_topic(self, topic: str) -> List[dict]:
         """

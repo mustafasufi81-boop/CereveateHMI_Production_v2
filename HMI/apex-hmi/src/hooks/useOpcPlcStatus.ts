@@ -13,6 +13,12 @@ export interface OpcStatus {
   lastError: string | null;
 }
 
+export interface PlcAlert {
+  level: string;   // "error" | "warning" | "info"
+  code: string;    // "PLC_FROZEN" | "PLC_DISCONNECTED" | "NO_PLC_CONFIGURED"
+  message: string;
+}
+
 export interface PlcStatus {
   id: string;
   name: string;
@@ -21,12 +27,20 @@ export interface PlcStatus {
   protocol: string;
   ipAddress: string;
   lastUpdate: string;
+  // Gap 8: PLC mode + freeze info
+  mode: string;            // "RUN" | "FROZEN" | "UNKNOWN"
+  frozenForMs: number;
+  lastValueChange: string;
+  alerts: PlcAlert[];
+  isNoPlcSentinel: boolean;
 }
 
 export interface OpcPlcStatusResult {
   opc: OpcStatus | null;
   plcs: PlcStatus[];
   anyPlcDisconnected: boolean;
+  anyPlcFrozen: boolean;
+  noPlcConfigured: boolean;
   backendReachable: boolean;
   loading: boolean;
   lastUpdated: Date | null;
@@ -39,6 +53,8 @@ export function useOpcPlcStatus(): OpcPlcStatusResult {
     opc: null,
     plcs: [],
     anyPlcDisconnected: false,
+    anyPlcFrozen: false,
+    noPlcConfigured: false,
     backendReachable: true,
     loading: true,
     lastUpdated: null,
@@ -60,8 +76,23 @@ export function useOpcPlcStatus(): OpcPlcStatusResult {
         if (!mountedRef.current) return;
         setResult({
           opc: data.opc ?? null,
-          plcs: data.plcs ?? [],
+          plcs: (data.plcs ?? []).map((p: Partial<PlcStatus>) => ({
+            id: p.id ?? "",
+            name: p.name ?? "",
+            status: p.status ?? "",
+            connected: !!p.connected,
+            protocol: p.protocol ?? "",
+            ipAddress: p.ipAddress ?? "",
+            lastUpdate: p.lastUpdate ?? "",
+            mode: p.mode ?? "UNKNOWN",
+            frozenForMs: p.frozenForMs ?? 0,
+            lastValueChange: p.lastValueChange ?? "",
+            alerts: p.alerts ?? [],
+            isNoPlcSentinel: !!p.isNoPlcSentinel,
+          })),
           anyPlcDisconnected: data.anyPlcDisconnected ?? false,
+          anyPlcFrozen: data.anyPlcFrozen ?? false,
+          noPlcConfigured: data.noPlcConfigured ?? false,
           backendReachable: data.backendReachable ?? true,
           loading: false,
           lastUpdated: new Date(),

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using PlcGateway.Drivers;
 using PlcGateway.Interfaces;
 
 namespace PlcGateway.Services;
@@ -39,6 +40,8 @@ public sealed class PlcWorker : IAsyncDisposable
     private readonly IPlcDriver _driver;              // Own driver instance
     private readonly PlcWorkerPool _pool;             // Own data pool (for worker stats)
     private readonly PlcTagValuesPoolService? _sharedPool; // Shared pool for API access
+    private string _currentPlcMode = "UNKNOWN";  // Gap 8: actual CIP controller mode
+    private int    _pollsUntilModeCheck = 0;       // refresh mode every 5 successful polls
     private readonly PlcSampleBufferService? _sampleBuffer; // Shared sample buffer for MQTT
     private readonly PlcWorkerConfig _config;         // Own configuration
     private readonly ILogger _logger;                 // Shared but thread-safe
@@ -436,7 +439,20 @@ public sealed class PlcWorker : IAsyncDisposable
                             SequenceId = currentSequenceId  // S2-6a: Scan sequence tracking
                         }).ToList();
                         
-                        _sharedPool.UpdateFromPlc(PlcId, cacheEntries, DateTime.UtcNow);
+                        // Gap 8: refresh actual PLC mode every 5 polls (~5 s at 1 Hz)
+                        // Only RockwellDriver supports CIP mode read; cast is safe — returns null for all others.
+                        if (--_pollsUntilModeCheck <= 0)
+                        {
+                            _pollsUntilModeCheck = 5;
+                            try
+                            {
+                                if (_driver is RockwellDriver rockwellDriver)
+                                    _currentPlcMode = await rockwellDriver.ReadControllerModeAsync();
+                            }
+                            catch { /* non-fatal — keep previous mode */ }
+                        }
+
+                        _sharedPool.UpdateFromPlc(PlcId, cacheEntries, DateTime.UtcNow, _currentPlcMode);
                     }
                     
                     _lastSuccessTime = DateTime.UtcNow;
@@ -544,6 +560,12 @@ public sealed class PlcWorker : IAsyncDisposable
 
         _lastError = $"Failed to connect after {_config.MaxConnectRetries} attempts";
         _logger.LogError("[WORKER {WorkerId}] {Error}", WorkerId, _lastError);
+
+        // Gap 4: Ensure the shared pool registers this PLC as disconnected even
+        // when the very first ConnectAsync sequence never succeeded. Without this
+        // call, _sharedPool._connectionStatus has no entry for this PlcId at all
+        // and /api/plc/connections cannot report a meaningful lastError.
+        _sharedPool?.MarkPlcDisconnected(PlcId, _lastError);
     }
 
     private void HandlePollFailure(string error)

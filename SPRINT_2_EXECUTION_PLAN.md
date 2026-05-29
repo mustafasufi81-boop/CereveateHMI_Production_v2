@@ -503,7 +503,7 @@ Get-Content "d:\CereveateHMI_Production\CSharpBackend\logs\plc-gateway-*.json" -
 - [ ] S2-3: Transport API updated
 - [ ] S2-4: PLC tags in tag_master
 - [ ] S2-5: Plant/area IDs assigned
-- [ ] S2-7: Serilog JSON logging configured
+- [✅] S2-7: Serilog logging infrastructure configured (Console.WriteLine migration complete)
 - [ ] Unit tests passing
 - [ ] Integration tests passing
 - [ ] System tests passing

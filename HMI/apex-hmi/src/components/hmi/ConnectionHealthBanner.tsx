@@ -72,10 +72,14 @@ export const ConnectionHealthBanner: React.FC = () => {
     }
 
     // ── Problem banner ─────────────────────────────────────────────────────
-    const isHard = !health.socketConnected || health.flaskReachable === false;
-    const bg        = isHard ? '#2d0a0a' : '#2d1f00';
-    const border    = isHard ? '#ff3b3b' : '#ffaa00';
-    const textColor = isHard ? '#ff6b6b' : '#ffcc44';
+    // RED: No PLC connection at all
+    const isRed = !health.socketConnected;
+    // ORANGE: Connected but using fallback/delayed
+    const isOrange = health.flaskReachable === false || health.dataIsStale;
+    
+    const bg        = isRed ? '#2d0a0a' : '#2d1f00';
+    const border    = isRed ? '#ff3b3b' : '#ffaa00';
+    const textColor = isRed ? '#ff6b6b' : '#ffcc44';
 
     return (
         <div style={{
@@ -88,17 +92,14 @@ export const ConnectionHealthBanner: React.FC = () => {
             boxShadow: `0 2px 12px rgba(0,0,0,0.5)`,
             whiteSpace: 'nowrap', maxWidth: '90vw',
         }}>
-            {isHard
+            {isRed
                 ? <WifiOff size={13} style={{ flexShrink: 0 }} />
                 : <AlertTriangle size={13} style={{ flexShrink: 0 }} />}
             <span style={{ fontWeight: 700 }}>
-                {isHard ? 'CONNECTION LOST' : 'WARNING'}
+                {health.problem}
             </span>
             {health.dataIsStale && lastDataLabel && (
-                <span style={{ opacity: 0.7 }}>· {lastDataLabel}</span>
-            )}
-            {health.reconnectAttempts > 0 && (
-                <span style={{ opacity: 0.6 }}>· #{health.reconnectAttempts}</span>
+                <span style={{ opacity: 0.7 }}>· Last: {lastDataLabel}</span>
             )}
             <button
                 onClick={handleReconnect}

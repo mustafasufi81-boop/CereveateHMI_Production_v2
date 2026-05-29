@@ -14,16 +14,17 @@ export interface ConnectionHealth extends MQTTHealth {
 }
 
 function buildProblem(h: MQTTHealth): string | null {
-    if (!h.socketConnected && h.reconnectAttempts > 0)
-        return `OPC backend (C# service on port 5001) disconnected — reconnecting (attempt ${h.reconnectAttempts})…`;
+    // RED: No connection at all
     if (!h.socketConnected)
-        return 'OPC backend (C# service on port 5001) not connected — waiting for server…';
+        return 'System Reconnecting';
+    
+    // ORANGE: Connected but using fallback (Flask unreachable or data stale)
     if (h.flaskReachable === false)
-        return 'Flask backend (port 6001) is not reachable — data may be stale';
-    if (h.dataIsStale && h.lastDataReceivedAt !== null)
-        return 'No OPC data received for >15 s — check C# OPC service and SignalR connection';
-    if (h.dataIsStale && h.lastDataReceivedAt === null)
-        return 'Connected but no OPC data yet — waiting for first tag update…';
+        return 'Using Backup Connection';
+    if (h.dataIsStale)
+        return 'Data Update Delayed';
+    
+    // GREEN: All good
     return null;
 }
 

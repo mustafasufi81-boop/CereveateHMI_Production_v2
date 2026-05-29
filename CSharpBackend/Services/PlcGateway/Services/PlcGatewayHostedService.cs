@@ -21,6 +21,7 @@ public class PlcGatewayHostedService : BackgroundService
 {
     private readonly PlcGatewayManager _gateway;
     private readonly PlcConfigLoaderService _configLoader;
+    private readonly PlcTagValuesPoolService _tagPool;
     private readonly ILogger<PlcGatewayHostedService> _logger;
     
     private readonly TimeSpan _configRefreshInterval = TimeSpan.FromMinutes(5);
@@ -28,10 +29,12 @@ public class PlcGatewayHostedService : BackgroundService
     public PlcGatewayHostedService(
         PlcGatewayManager gateway,
         PlcConfigLoaderService configLoader,
+        PlcTagValuesPoolService tagPool,
         ILogger<PlcGatewayHostedService> logger)
     {
         _gateway = gateway;
         _configLoader = configLoader;
+        _tagPool = tagPool;
         _logger = logger;
     }
 
@@ -80,46 +83,20 @@ public class PlcGatewayHostedService : BackgroundService
             // FOR TESTING: If no configs found, add hardcoded test PLC
             if (!configs.Any())
             {
-                _logger.LogInformation("[PLC SERVICE] No database configs found, using hardcoded test PLC");
-                
-                var testConfig = new PlcDriverConfig
-                {
-                    PlcId = "ROCKWELL_001",
-                    PlcName = "Test Rockwell PLC",
-                    Protocol = PlcProtocol.EtherNetIP,
-                    IpAddress = "192.168.0.20",
-                    Port = 44818,
-                    PollingIntervalMs = 1000,
-                    ReconnectDelayMs = 5000,
-                    RetryCount = 3,
-                    TimeoutMs = 5000,
-                    PlantId = "PLANT_001"
-                };
-
-                var testTags = new List<PlcTagDefinition>
-                {
-                    new PlcTagDefinition { Address = "Cooling_FAN_SPEED", TagName = "Cooling_FAN_SPEED", DataType = "REAL" },
-                    new PlcTagDefinition { Address = "High_Temp_Limit", TagName = "High_Temp_Limit", DataType = "REAL" },
-                    new PlcTagDefinition { Address = "Tank_Level", TagName = "Tank_Level", DataType = "REAL" },
-                    new PlcTagDefinition { Address = "Pump_Status", TagName = "Pump_Status", DataType = "BOOL" },
-                    new PlcTagDefinition { Address = "Motor_RPM", TagName = "Motor_RPM", DataType = "REAL" }
-                };
-
-                var success = await _gateway.AddPlcAsync(testConfig, testTags);
-                
-                if (success)
-                {
-                    _logger.LogInformation(
-                        "[PLC SERVICE] Started TEST PLC: {PlcId} - {TagCount} tags",
-                        testConfig.PlcId, testTags.Count);
-                }
-                else
-                {
-                    _logger.LogError("[PLC SERVICE] Failed to start TEST PLC");
-                }
-                
-                return; // Skip database loading
+                // Gap 7: Surface "no PLC configured" as an explicit, visible alert
+                // instead of silently spinning up a hardcoded fixture. Operators must
+                // see this in /api/plc/connections so it can be displayed in the HMI.
+                _logger.LogError(
+                    "[PLC SERVICE] No PLC configurations found in database (historian_meta.tag_master). " +
+                    "The PLC gateway has nothing to poll. Configure at least one enabled PLC in the database.");
+                _tagPool.MarkNoPlcConfigured(
+                    "No PLC configurations found in database (historian_meta.tag_master). " +
+                    "Configure at least one enabled PLC.");
+                return;
             }
+
+            // Clear the sentinel if configs are now available
+            _tagPool.ClearNoPlcConfiguredSentinel();
 
             foreach (var config in configs)
             {

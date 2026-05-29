@@ -115,7 +115,7 @@ All browsers now always get fresh JS on every load. No manual cache clearing nee
 ## Issue 4 — Garbled/Broken Characters in Navigation Tab Labels
 
 ### Symptom
-Nav tabs showed: `П"% TRENDS`, `ðŸ ANALYTICS`, `П"® PREDICTIVE`, `П"‹ REPORTS ↗`  
+Nav tabs showed: `ÐŸ"% TRENDS`, `ðŸ ANALYTICS`, `ÐŸ"® PREDICTIVE`, `ÐŸ"‹ REPORTS ↗`  
 (emoji rendered as multi-byte garbage characters)
 
 ### Root Cause
@@ -133,7 +133,7 @@ Replaced corrupted emoji spans with clean plain text labels using direct `[Syste
 | `<span>ðŸ"‰</span> TRENDS` | `TRENDS` |
 | `<span>âš </span> ANALYTICS` | `ANALYTICS` |
 | `<span>ðŸ"®</span> PREDICTIVE` | `PREDICTIVE` |
-| `<span>ðŸ"‹</span> REPORTS ↗` | `REPORTS ↗` |
+| `<span>ðŸ"‹</span> REPORTS â†—` | `REPORTS ↗` |
 
 > **NOTE for future:** If you want emoji back, use JSX Unicode escapes — NOT copy-paste:
 > ```tsx

@@ -32,8 +32,9 @@ const MonthlyReport = () => {
 
   const today = toDateInput(new Date());
 
-  const [fromDate, setFromDate] = useState<string>(selection.date || today);
-  const [toDate, setToDate] = useState<string>(selection.date || today);
+  // Always default to today's date, even if localStorage has old date
+  const [fromDate, setFromDate] = useState<string>(today);
+  const [toDate, setToDate] = useState<string>(today);
   const [selectedPlants, setSelectedPlants] = useState<string[]>(selection.selectedPlants || []);
   const [selectedAreas, setSelectedAreas] = useState<string[]>(selection.selectedAreas || []);
   const [selectedSource, setSelectedSource] = useState<string>("");
@@ -163,7 +164,9 @@ const MonthlyReport = () => {
     enabled: Boolean(reportRequest),
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchOnMount: false,
+    refetchOnMount: true,
+    staleTime: 30000,
+    gcTime: 300000,
   });
 
   const totalRows = reportQuery.data?.pagination?.total_rows ?? 0;

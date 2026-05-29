@@ -74,7 +74,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                 connect_timeout=10,
                 options="-c statement_timeout=30000 -c application_name=pred_alarm_engine",
             )
-            logger.info("[Engine] DB pool created → %s@%s", cfg['database'], cfg['host'])
+            logger.info("[Engine] DB pool created: %s@%s", cfg['database'], cfg['host'])
     return _pool
 
 

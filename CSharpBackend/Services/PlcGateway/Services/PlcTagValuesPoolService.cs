@@ -28,6 +28,21 @@ public class PlcTagValuesPoolService
     private int _totalUpdates;
     private long _totalTagsProcessed;
 
+    // ── Gap 8: Per-PLC value-change tracking for PLC mode detection ─────
+    // Primary:  driver's ReadControllerModeAsync() returns actual CIP mode.
+    // Fallback: value-change heuristic — requires ≥15% of tags to change per scan
+    //           (physical I/O noise alone is typically <5% of tags, so this
+    //           correctly ignores noise and only stays RUN when user program runs).
+    private readonly ConcurrentDictionary<string, DateTime> _plcLastValueChange = new(StringComparer.OrdinalIgnoreCase);
+
+    // Threshold: if <15% of tags changed in a scan AND no actual mode known
+    //            → that scan does NOT reset the last-change timer.
+    private const double RunChangeThresholdPct = 0.15;
+
+    // If no significant change for this long while connected → FROZEN
+    // (reduced from 30 s to 8 s so the badge flips fast after mode change)
+    private const long FrozenThresholdMs = 8_000;
+
     public PlcTagValuesPoolService(ILogger<PlcTagValuesPoolService> logger)
     {
         _logger = logger;
@@ -43,24 +58,69 @@ public class PlcTagValuesPoolService
     /// Update cache with values from a single PLC
     /// Called by PlcDataLoggingService on each poll cycle
     /// </summary>
-    public void UpdateFromPlc(string plcId, List<PlcTagValueCacheEntry> tagValues, DateTime timestamp)
+    public void UpdateFromPlc(string plcId, List<PlcTagValueCacheEntry> tagValues, DateTime timestamp,
+                               string? plcMode = null)
     {
         if (tagValues == null || tagValues.Count == 0) return;
 
         var updateCount = 0;
+        var changedCount = 0;
+        var hadPriorCache = false;
 
         foreach (var tagValue in tagValues)
         {
             // Key format: "PlcId::Address" for uniqueness across PLCs
             var cacheKey = $"{plcId}::{tagValue.Address}";
-            
-            _cache[cacheKey] = tagValue with 
-            { 
+
+            // Gap 8: count value changes for the heuristic
+            if (_cache.TryGetValue(cacheKey, out var prev))
+            {
+                hadPriorCache = true;
+                if (!Equals(prev.Value, tagValue.Value))
+                    changedCount++;
+            }
+
+            _cache[cacheKey] = tagValue with
+            {
                 PlcId = plcId,
                 CacheKey = cacheKey,
-                CachedAt = DateTime.UtcNow 
+                CachedAt = DateTime.UtcNow
             };
             updateCount++;
+        }
+
+        // First scan ever counts as activity (seed timestamp)
+        if (!hadPriorCache) changedCount = tagValues.Count;
+
+        // Heuristic: require ≥15% of tags to change to count as "significant activity".
+        // Physical I/O noise is typically <5% of tags; real program execution moves 20-100%.
+        var significantActivity = hadPriorCache
+            ? ((double)changedCount / tagValues.Count) >= RunChangeThresholdPct
+            : true;
+
+        if (significantActivity)
+            _plcLastValueChange[plcId] = DateTime.UtcNow;
+
+        // Compute mode/freeze metrics for the heuristic fallback
+        var lastChange = _plcLastValueChange.TryGetValue(plcId, out var lc) ? (DateTime?)lc : null;
+        var frozenForMs = lastChange.HasValue
+            ? (long)(DateTime.UtcNow - lastChange.Value).TotalMilliseconds
+            : 0L;
+
+        // ── Choose authoritative mode ───────────────────────────────────────
+        // Priority 1: actual CIP mode read from the driver (non-null, non-UNKNOWN)
+        // Priority 2: heuristic — FROZEN if no significant value change for >8 s, else RUN
+        string mode;
+        if (!string.IsNullOrEmpty(plcMode) && plcMode != "UNKNOWN")
+        {
+            // Real mode from the PLC; always trust it.
+            // Still update frozenForMs so the badge can show how long it's been in this mode.
+            mode = plcMode;
+        }
+        else
+        {
+            // Heuristic fallback
+            mode = frozenForMs > FrozenThresholdMs ? "FROZEN" : "RUN";
         }
 
         // Update connection status - preserve total tag count across batches
@@ -71,7 +131,10 @@ public class PlcTagValuesPoolService
             IsConnected = true,
             LastUpdateTime = timestamp,
             TagCount = totalTagsForPlc, // Use TOTAL tags in cache for this PLC, not batch size
-            LastError = null
+            LastError = null,
+            LastValueChangeTime = lastChange,
+            FrozenForMs = frozenForMs,
+            Mode = mode
         };
 
         lock (_updateLock)
@@ -95,7 +158,8 @@ public class PlcTagValuesPoolService
             PlcId = plcId,
             IsConnected = false,
             LastUpdateTime = DateTime.UtcNow,
-            LastError = error
+            LastError = error,
+            Mode = "UNKNOWN"
         };
 
         // Mark all tags from this PLC as stale
@@ -105,6 +169,33 @@ public class PlcTagValuesPoolService
         }
 
         _logger.LogWarning("[PLC POOL] Marked {PlcId} as disconnected: {Error}", plcId, error ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Gap 7: Register a sentinel entry indicating no PLCs are configured in the database.
+    /// This makes the "no PLC" state visible via /api/plc/connections instead of silently empty.
+    /// </summary>
+    public void MarkNoPlcConfigured(string reason = "No PLC configurations found in database")
+    {
+        const string sentinelId = "__NONE__";
+        _connectionStatus[sentinelId] = new PlcPoolConnectionStatus
+        {
+            PlcId = sentinelId,
+            IsConnected = false,
+            LastUpdateTime = DateTime.UtcNow,
+            TagCount = 0,
+            LastError = reason,
+            Mode = "UNKNOWN"
+        };
+        _logger.LogError("[PLC POOL] {Reason} — backend has no PLC to poll", reason);
+    }
+
+    /// <summary>
+    /// Clear the no-PLC sentinel (called once configs are loaded)
+    /// </summary>
+    public void ClearNoPlcConfiguredSentinel()
+    {
+        _connectionStatus.TryRemove("__NONE__", out _);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -357,19 +448,26 @@ public record PlcTagValueCacheEntry
     /// <summary>
     /// Computed quality (upgrades to Stale if age > 10 seconds)
     /// S1-4: If tag is Good but older than 10s, mark as Stale
+    /// Gap 1: Also escalate Uncertain → Stale once age exceeds threshold so that
+    /// values from a disconnected PLC (MarkPlcDisconnected sets Uncertain) are
+    /// visibly stale to downstream consumers. Hard-bad qualities (Bad/CommError/
+    /// NotConfigured) are preserved as-is — they carry stronger meaning than Stale.
     /// </summary>
     public PlcTagQuality ComputedQuality
     {
         get
         {
-            // If already Bad/CommError/Uncertain, keep original quality
-            if (Quality != PlcTagQuality.Good)
+            // Preserve hard-bad qualities (stronger signal than Stale)
+            if (Quality == PlcTagQuality.Bad
+                || Quality == PlcTagQuality.CommError
+                || Quality == PlcTagQuality.NotConfigured
+                || Quality == PlcTagQuality.Stale)
                 return Quality;
-            
-            // S1-4: If Good but age > 10 seconds, mark as Stale
+
+            // Good or Uncertain → upgrade to Stale once age > 10 seconds
             if (age_ms > 10_000)
                 return PlcTagQuality.Stale;
-            
+
             return Quality;
         }
     }
@@ -398,6 +496,14 @@ public class PlcPoolConnectionStatus
     public DateTime LastUpdateTime { get; set; }
     public int TagCount { get; set; }
     public string? LastError { get; set; }
+
+    // Gap 8: PLC mode detection (RUN | FROZEN | UNKNOWN)
+    // FROZEN = reads are succeeding but no tag value has changed for >30s.
+    // Most common cause is Rockwell PROGRAM mode (controller halted user logic
+    // but still serves CIP reads), or a PLC scan/I/O fault.
+    public string Mode { get; set; } = "UNKNOWN";
+    public DateTime? LastValueChangeTime { get; set; }
+    public long FrozenForMs { get; set; }
 }
 
 /// <summary>
