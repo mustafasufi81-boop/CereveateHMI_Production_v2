@@ -97,6 +97,15 @@ public sealed class AlarmRuntimeState
     public string?         AckBy         { get; set; }
     public DateTimeOffset? RtnAt         { get; set; }
 
+    /// <summary>
+    /// Alarm priority (1-5) for THIS occurrence, captured at RAISE time.
+    /// Priority is a fixed occurrence attribute (ISA-18.2 §5.2.4) — every lifecycle
+    /// record (RAISE, RTN, ACK, CLEAR) must report the SAME priority. The state
+    /// manager reads this value when writing RTN/ACK/CLEAR rows so the priority
+    /// never changes mid-lifecycle.
+    /// </summary>
+    public int Priority { get; set; }
+
     /// <summary>Builds the composite alarm key for a tag + level combination.</summary>
     public static string BuildKey(string tagId, AlarmLevel level) => $"{tagId}:{level}";
 }

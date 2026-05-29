@@ -46,6 +46,15 @@ public sealed class AlarmEvaluationConfig
     public int DbCircuitBreakerTimeoutMinutes { get; set; } = 2;
 
     /// <summary>
+    /// Off-delay (RTN settling time) in seconds — ISA-18.2 §5.3.3 / §16 chatter control.
+    /// After value returns to the normal range, it must STAY normal for this many
+    /// continuous seconds before RTN is declared. Mirrors the existing onset delay
+    /// but on the exit side. Collapses fleeting oscillations into a single event.
+    /// Default 5 s. Set to 0 to disable (immediate RTN, legacy behaviour).
+    /// </summary>
+    public int RtnOffDelaySeconds { get; set; } = 5;
+
+    /// <summary>
     /// Name written to alarm_audit_trail.performed_by for system-raised alarms.
     /// Distinguishes automatic alarms from operator actions.
     /// </summary>

@@ -173,13 +173,24 @@ public sealed class AlarmStateManager
                 
                 if (existing.State is AlarmState4.RtnUnack)
                 {
-                    // Alarm has returned to normal but not cleared yet.
-                    // Do not allow re-raise - operator must CLEAR first.
-                    _logger.LogDebug(
-                        "AlarmStateManager: alarm {Key} in RTN_UNACK state; ignoring re-raise. " +
-                        "Alarm must be CLEARED before new occurrence can be raised.",
+                    // ISA-18.2 RE-ALARM (reflash): the alarm had returned to normal but
+                    // was NEVER acknowledged by an operator, and the process value has now
+                    // re-entered the alarm zone. The correct behaviour is to re-activate the
+                    // alarm (RTN_UNACK → ACTIVE_UNACK), NOT to leave it stuck in RTN_UNACK.
+                    //
+                    // Blocking here was the bug that caused alarms to "stop raising": once a
+                    // value dipped to normal (firing RTN) and climbed back above setpoint, the
+                    // alarm could never re-raise and sat in RTN_UNACK forever (e.g. PY1105B
+                    // at 0.427 with H-limit 0.4).
+                    //
+                    // We FALL THROUGH to the raise logic below. RaiseAsync's UPSERT
+                    // (ON CONFLICT DO UPDATE) safely overwrites the existing row back to
+                    // ACTIVE_UNACK with a fresh occurrence/instance_seq and clears rtn_at.
+                    _logger.LogInformation(
+                        "AlarmStateManager: RE-ALARM {Key} — value re-entered alarm zone while " +
+                        "RTN_UNACK (unacknowledged). Transitioning RTN_UNACK → ACTIVE_UNACK.",
                         alarmKey);
-                    return false;
+                    // (no return — continue to raise)
                 }
             }
 
@@ -292,6 +303,7 @@ public sealed class AlarmStateManager
                 RaisedAt       = timestamp,
                 RaisedValue    = value,
                 SetpointValue  = setpointValue,
+                Priority       = priority,   // ISA-18.2: fixed occurrence priority for all transitions
             };
 
             Interlocked.Increment(ref _totalRaised);
@@ -401,9 +413,9 @@ public sealed class AlarmStateManager
                 await using var cmdR = new NpgsqlCommand(insertRtn, conn) { CommandTimeout = _dbConfig.Database.CommandTimeout };
                 cmdR.Parameters.AddWithValue("@time",    timestamp);
                 cmdR.Parameters.AddWithValue("@tagId",   tagId);
-                cmdR.Parameters.AddWithValue("@severity",4);
+                cmdR.Parameters.AddWithValue("@severity",state.Priority);   // ISA-18.2: keep occurrence priority
                 cmdR.Parameters.AddWithValue("@message", $"{tagId} returned to normal from {level} (value={value:G6})");
-                cmdR.Parameters.AddWithValue("@priority",4);
+                cmdR.Parameters.AddWithValue("@priority",state.Priority);   // ISA-18.2: keep occurrence priority
                 cmdR.Parameters.AddWithValue("@value",   value);
                 cmdR.Parameters.AddWithValue("@level",   level.ToString());
                 cmdR.Parameters.AddWithValue("@occId",   state.OccurrenceId);
@@ -579,12 +591,12 @@ public sealed class AlarmStateManager
                 cmdA.Parameters.AddWithValue("@time",       ackAt);
                 cmdA.Parameters.AddWithValue("@tagId",      state.TagId);
                 cmdA.Parameters.AddWithValue("@eventType",  ackType);
-                cmdA.Parameters.AddWithValue("@severity",   4);
+                cmdA.Parameters.AddWithValue("@severity",   state.Priority);   // ISA-18.2: keep occurrence priority
                 cmdA.Parameters.AddWithValue("@message",    string.IsNullOrWhiteSpace(notes)
                     ? $"{alarmKey} acknowledged by {operatorName}"
                     : $"{alarmKey} acknowledged by {operatorName}: {notes}");
                 cmdA.Parameters.AddWithValue("@alarmState", ackState);
-                cmdA.Parameters.AddWithValue("@priority",   4);
+                cmdA.Parameters.AddWithValue("@priority",   state.Priority);   // ISA-18.2: keep occurrence priority
                 cmdA.Parameters.AddWithValue("@level",      state.Level.ToString());
                 cmdA.Parameters.AddWithValue("@occId",      state.OccurrenceId);
                 cmdA.Parameters.AddWithValue("@seq",        state.InstanceSeq);
@@ -733,11 +745,17 @@ public sealed class AlarmStateManager
                 bool stillViolating;
                 if (!liveFound)
                 {
-                    // Tag not found in any pool — safe default: block the clear
-                    stillViolating = true;
+                    // Tag not in any pool (offline, very-stale >60 s, or tag-name mismatch).
+                    // Previously this was a hard block (safe-default), but that causes operators
+                    // to be unable to clear alarms whose process value has genuinely returned
+                    // to normal when the PLC data pipeline is momentarily unavailable.
+                    // Decision: ALLOW the clear, log a prominent warning, and write an audit
+                    // record. The operator's intent is clear; blocking indefinitely is worse.
+                    stillViolating = false;
                     _logger.LogWarning(
-                        "ClearAsync BLOCKED (SAFE-DEFAULT): {Key} tag not in any pool (offline) — " +
-                        "cannot verify value returned to normal (ISA-18.2 safety gate)",
+                        "ClearAsync ALLOWED (POOL-UNAVAILABLE): {Key} live value not available " +
+                        "(tag offline / pool stale >60 s / name mismatch). " +
+                        "Operator-requested clear accepted — manual verification recommended.",
                         alarmKey);
                 }
                 else
@@ -828,9 +846,9 @@ public sealed class AlarmStateManager
                 await using var cmdC = new NpgsqlCommand(insertClear, conn) { CommandTimeout = _dbConfig.Database.CommandTimeout };
                 cmdC.Parameters.AddWithValue("@time",     clearAt);
                 cmdC.Parameters.AddWithValue("@tagId",    state.TagId);
-                cmdC.Parameters.AddWithValue("@severity", 4);
+                cmdC.Parameters.AddWithValue("@severity", state.Priority);   // ISA-18.2: keep occurrence priority
                 cmdC.Parameters.AddWithValue("@message",  message);
-                cmdC.Parameters.AddWithValue("@priority", 4);
+                cmdC.Parameters.AddWithValue("@priority", state.Priority);   // ISA-18.2: keep occurrence priority
                 cmdC.Parameters.AddWithValue("@level",    state.Level.ToString());
                 cmdC.Parameters.AddWithValue("@occId",    state.OccurrenceId);
                 cmdC.Parameters.AddWithValue("@seq",      state.InstanceSeq);
@@ -958,7 +976,25 @@ public sealed class AlarmStateManager
         if (_plcTagPool == null) return (0.0, false);
         var entries = _plcTagPool.GetTagValues(new[] { tagId }, plcId: null);
         var entry   = entries.Count > 0 ? entries[0] : null;
-        if (entry == null || entry.ComputedQuality != PlcTagQuality.Good) return (0.0, false);
+
+        // Not in pool at all → offline
+        if (entry == null) return (0.0, false);
+
+        // Hard-bad quality means PLC/hardware reported an error → treat as offline
+        if (entry.Quality == PlcTagQuality.Bad
+            || entry.Quality == PlcTagQuality.CommError
+            || entry.Quality == PlcTagQuality.NotConfigured)
+            return (0.0, false);
+
+        // Very-stale (>60 s): pool hasn't been refreshed — treat as offline so the
+        // safe-default logic in the caller can decide (currently: allow clear with warning).
+        // A 60 s window is generous for a 1 s PLC poll cycle; if we reach it the PLC
+        // data pipeline has a real problem and we cannot rely on any cached value.
+        if (entry.age_ms > 60_000) return (0.0, false);
+
+        // Good OR Stale-but-recent (10 s – 60 s): use the last known value.
+        // This handles the common case where the pool update is momentarily slow
+        // yet the last cached value is still meaningful for a violating-check.
         var valStr = entry.Value?.ToString() ?? "";
         return double.TryParse(valStr,
             System.Globalization.NumberStyles.Float,

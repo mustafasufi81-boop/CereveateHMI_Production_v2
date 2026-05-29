@@ -938,7 +938,7 @@ export const IndustrialHMIPrototype = () => {
       }
     };
 
-    const interval = setInterval(pollRestValues, 5000); // 5s — prevents stacking when C# is slow
+    const interval = setInterval(pollRestValues, 10000); // 10s — prevents stacking when C# is slow
     pollRestValues(); // run immediately on mount / permission restore
     return () => clearInterval(interval);
   }, [canViewHmi]); // restart when HMI access is granted/revoked
@@ -1471,10 +1471,19 @@ export const IndustrialHMIPrototype = () => {
             {connHealth.flaskReachable === false && (
               <span style={{ color: ISA_COLORS.statusOffline, marginLeft: 4 }}>| FLASK API DOWN</span>
             )}
-            {opcFailed && connHealth.flaskReachable !== false && (
+            {/*
+              REST FAIL banner gating (fix: prevent false-positive while MQTT is LIVE)
+              REST is a *fallback* — its hiccups must not panic the operator while the
+              primary MQTT stream is healthy and delivering fresh data. Show the banner
+              only when REST has tripped (≥3 consecutive failures) AND MQTT is also
+              unable to compensate (socket down OR data is stale).
+            */}
+            {opcFailed && connHealth.flaskReachable !== false
+              && (!connHealth.socketConnected || connHealth.dataIsStale) && (
               <span style={{ color: '#ff4444', marginLeft: 4, fontWeight: 700 }}>| OPC REST FAIL</span>
             )}
-            {plcFailed && (
+            {plcFailed
+              && (!connHealth.socketConnected || connHealth.dataIsStale) && (
               <span style={{ color: '#ff8800', marginLeft: 4, fontWeight: 700 }}>| PLC REST FAIL</span>
             )}
             {usingRestFallback && !opcFailed && (

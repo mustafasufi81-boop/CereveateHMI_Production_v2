@@ -29,6 +29,11 @@ public sealed class AlarmDelayTracker
     private readonly ConcurrentDictionary<string, PendingOnset> _pending =
         new(StringComparer.OrdinalIgnoreCase);
 
+    // Separate dictionary for OFF-delay (RTN settling) timers — ISA-18.2 §5.3.3/§16.
+    // Kept distinct from onset timers so the two states never interfere.
+    private readonly ConcurrentDictionary<string, PendingOnset> _pendingRtn =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly ILogger<AlarmDelayTracker> _logger;
 
     public AlarmDelayTracker(ILogger<AlarmDelayTracker> logger)
@@ -93,4 +98,64 @@ public sealed class AlarmDelayTracker
 
     /// <summary>Count of currently pending onset timers (diagnostics).</summary>
     public int PendingCount => _pending.Count;
+
+    // =========================================================
+    // RTN OFF-DELAY (settling time before clearing) — ISA-18.2 §5.3.3 / §16
+    // Mirrors the onset-delay API symmetrically. Value must remain in the NORMAL
+    // range for the configured seconds continuously before RTN is declared.
+    // Collapses chattering oscillations into a single event.
+    // =========================================================
+
+    /// <summary>
+    /// Called on each evaluation cycle when an active alarm's value has returned to normal
+    /// (HasExitedAlarmZone is true).
+    ///
+    /// If offDelaySeconds == 0   → returns true immediately (RTN now — legacy behaviour).
+    /// If no pending timer yet   → starts the timer, returns false.
+    /// If timer already started  → returns true if elapsed, false if still settling.
+    /// </summary>
+    public bool TryStartOrCheckRtn(string alarmKey, AlarmLevel level, double value, int offDelaySeconds)
+    {
+        if (offDelaySeconds <= 0)
+            return true;  // Immediate RTN — no settling required
+
+        if (_pendingRtn.TryGetValue(alarmKey, out var existing))
+        {
+            var elapsed = DateTimeOffset.UtcNow - existing.StartedAt;
+            if (elapsed.TotalSeconds >= offDelaySeconds)
+            {
+                _pendingRtn.TryRemove(alarmKey, out _);
+                _logger.LogDebug("AlarmDelayTracker: RTN off-delay expired for {Key} — clearing alarm", alarmKey);
+                return true;
+            }
+            return false;  // Still settling
+        }
+
+        _pendingRtn[alarmKey] = new PendingOnset
+        {
+            AlarmKey     = alarmKey,
+            Level        = level,
+            Value        = value,
+            StartedAt    = DateTimeOffset.UtcNow,
+            DelaySeconds = offDelaySeconds,
+        };
+        _logger.LogDebug("AlarmDelayTracker: RTN off-delay started for {Key} ({Sec}s)", alarmKey, offDelaySeconds);
+        return false;
+    }
+
+    /// <summary>
+    /// Called when the value re-enters the alarm zone BEFORE the RTN off-delay expires.
+    /// Cancels the pending RTN timer — the alarm stays active, no RTN is fired.
+    /// </summary>
+    public void CancelRtn(string alarmKey)
+    {
+        if (_pendingRtn.TryRemove(alarmKey, out _))
+            _logger.LogDebug("AlarmDelayTracker: RTN off-delay cancelled for {Key} (value re-entered alarm zone before settling)", alarmKey);
+    }
+
+    /// <summary>Returns true if there is a pending RTN off-delay timer for the given alarm key.</summary>
+    public bool IsRtnPending(string alarmKey) => _pendingRtn.ContainsKey(alarmKey);
+
+    /// <summary>Count of currently pending RTN off-delay timers (diagnostics).</summary>
+    public int PendingRtnCount => _pendingRtn.Count;
 }

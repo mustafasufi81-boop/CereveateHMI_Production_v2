@@ -254,8 +254,13 @@ public sealed class AlarmEvaluationService : BackgroundService
                     if (AlarmSuppressionEngine.IsSuppressed(level, tagId, allStates))
                     {
                         _delayTracker.Cancel(alarmKey);  // Clear any pending delay if suppressed
+                        _delayTracker.CancelRtn(alarmKey);  // Cancel any pending RTN settling too
                         continue;
                     }
+
+                    // Value re-entered the alarm zone — cancel any pending RTN off-delay
+                    // (ISA-18.2 chatter control: settling timer resets on re-entry).
+                    _delayTracker.CancelRtn(alarmKey);
 
                     // Check onset delay — returns true when delay elapsed or zero
                     if (_delayTracker.TryStartOrCheck(alarmKey, level, value, setpoint.OnsetDelaySeconds))
@@ -280,7 +285,20 @@ public sealed class AlarmEvaluationService : BackgroundService
                 {
                     if (HasExitedAlarmZone(value, level, setpoint))
                     {
-                        await _stateManager.MarkRtnAsync(tagId, level, value, ts, ct);
+                        // ISA-18.2 §5.3.3/§16 chatter control — require the value to remain
+                        // settled in the normal range for RtnOffDelaySeconds continuous seconds
+                        // before declaring RTN. If the PV re-enters the alarm zone in that
+                        // window the timer is cancelled (above) and no RTN is fired.
+                        if (_delayTracker.TryStartOrCheckRtn(alarmKey, level, value, _alarmConfig.RtnOffDelaySeconds))
+                        {
+                            await _stateManager.MarkRtnAsync(tagId, level, value, ts, ct);
+                        }
+                    }
+                    else
+                    {
+                        // Value not fully exited yet (still inside deadband band) — no RTN
+                        // commitment; make sure no stale RTN timer lingers.
+                        _delayTracker.CancelRtn(alarmKey);
                     }
                 }
             }
@@ -312,16 +330,19 @@ public sealed class AlarmEvaluationService : BackgroundService
     /// <summary>
     /// Returns true when value has cleared the setpoint by the full deadband (asymmetric hysteresis).
     /// Prevents chatter when value oscillates near the threshold.
+    ///
+    /// Uses AlarmSetpoint.EffectiveDeadband(limit) (clamped) rather than the raw deadband so an
+    /// oversized/misconfigured deadband can never push the RTN exit threshold to an unreachable
+    /// value (which would leave the alarm stuck ACTIVE forever — see EffectiveDeadband docs).
     /// </summary>
     private static bool HasExitedAlarmZone(double value, AlarmLevel level, AlarmSetpoint sp)
     {
-        var db = sp.AlarmDeadband;
         return level switch
         {
-            AlarmLevel.HighHigh => sp.HhLimit.HasValue && value < (sp.HhLimit.Value - db),
-            AlarmLevel.High     => sp.HLimit.HasValue  && value < (sp.HLimit.Value  - db),
-            AlarmLevel.LowLow   => sp.LlLimit.HasValue && value > (sp.LlLimit.Value + db),
-            AlarmLevel.Low      => sp.LLimit.HasValue  && value > (sp.LLimit.Value  + db),
+            AlarmLevel.HighHigh => sp.HhLimit.HasValue && value < (sp.HhLimit.Value - sp.EffectiveDeadband(sp.HhLimit.Value)),
+            AlarmLevel.High     => sp.HLimit.HasValue  && value < (sp.HLimit.Value  - sp.EffectiveDeadband(sp.HLimit.Value)),
+            AlarmLevel.LowLow   => sp.LlLimit.HasValue && value > (sp.LlLimit.Value + sp.EffectiveDeadband(sp.LlLimit.Value)),
+            AlarmLevel.Low      => sp.LLimit.HasValue  && value > (sp.LLimit.Value  + sp.EffectiveDeadband(sp.LLimit.Value)),
             _                   => true,
         };
     }

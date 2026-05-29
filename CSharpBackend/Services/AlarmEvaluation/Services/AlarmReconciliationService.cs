@@ -183,6 +183,7 @@ public sealed class AlarmReconciliationService
             AckAt          = row.AckAt,
             AckBy          = row.AckBy,
             RtnAt          = row.RtnAt,
+            Priority       = row.Priority,
         };
         _stateManager.RestoreState(state);
         _logger.LogInformation(
@@ -237,6 +238,7 @@ public sealed class AlarmReconciliationService
                         AckAt          = row.AckAt,
                         AckBy          = row.AckBy,
                         RtnAt          = now,
+                        Priority       = row.Priority,
                     });
                 }
             }
@@ -260,7 +262,7 @@ public sealed class AlarmReconciliationService
             SELECT alarm_key, tag_id, level, alarm_state,
                    current_event_id, occurrence_id, instance_seq,
                    raised_at, raised_value, setpoint_value,
-                   ack_at, ack_by, rtn_at
+                   ack_at, ack_by, rtn_at, priority
             FROM historian_raw.alarm_active
             WHERE alarm_state IN ('ACTIVE_UNACK', 'ACTIVE_ACK', 'RTN_UNACK')
             ORDER BY raised_at DESC
@@ -294,6 +296,7 @@ public sealed class AlarmReconciliationService
                 AckAt          = rdr.IsDBNull(10) ? null : rdr.GetFieldValue<DateTimeOffset>(10),
                 AckBy          = rdr.IsDBNull(11) ? null : rdr.GetString(11),
                 RtnAt          = rdr.IsDBNull(12) ? null : rdr.GetFieldValue<DateTimeOffset>(12),
+                Priority       = rdr.IsDBNull(13) ? 0    : rdr.GetInt32(13),
             });
         }
         return rows;
@@ -335,5 +338,6 @@ public sealed class AlarmReconciliationService
         public DateTimeOffset?     AckAt          { get; init; }
         public string?             AckBy          { get; init; }
         public DateTimeOffset?     RtnAt          { get; init; }
+        public int                 Priority       { get; init; }
     }
 }
