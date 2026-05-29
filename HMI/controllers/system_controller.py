@@ -39,7 +39,7 @@ def proxy_opc_values(current_user):
         tag_filter = get_user_allowed_tag_filter()
 
         req = urllib.request.Request('http://127.0.0.1:5001/api/opc/values')
-        with urllib.request.urlopen(req, timeout=6) as response:
+        with urllib.request.urlopen(req, timeout=8) as response:
             data = json_lib.loads(response.read().decode('utf-8'))
 
         tags_raw = data.get('tags') or []
@@ -78,7 +78,7 @@ def proxy_plc_values(current_user):
     """
     try:
         req = urllib.request.Request('http://127.0.0.1:5001/api/plc/values')
-        with urllib.request.urlopen(req, timeout=6) as response:
+        with urllib.request.urlopen(req, timeout=8) as response:
             data = json_lib.loads(response.read().decode('utf-8'))
 
         # C# returns key 'values' (not 'tags') for PLC endpoint

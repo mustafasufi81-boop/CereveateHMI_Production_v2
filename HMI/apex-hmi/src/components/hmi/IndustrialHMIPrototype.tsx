@@ -908,7 +908,7 @@ export const IndustrialHMIPrototype = () => {
 
       // -- OPC REST poll --
       try {
-        const res = await fetch('/api/opc/values', { headers });
+        const res = await fetch('/api/opc/values', { headers, signal: AbortSignal.timeout(4500) });
         if (!res.ok) throw new Error(`OPC HTTP ${res.status}`);
         const data = await res.json();
         opcFailCountRef.current = 0;
@@ -923,12 +923,14 @@ export const IndustrialHMIPrototype = () => {
 
       // -- PLC REST poll --
       try {
-        const res = await fetch('/api/plc/values', { headers });
+        const res = await fetch('/api/plc/values', { headers, signal: AbortSignal.timeout(4500) });
         if (!res.ok) throw new Error(`PLC HTTP ${res.status}`);
         const data = await res.json();
         plcFailCountRef.current = 0;
         setPlcFailed(false);
         applyTagUpdates(data?.tags ?? data?.values ?? data, 'rest-plc');
+        // Notify MQTT health service that fresh data arrived (resets stale-data watchdog)
+        mqttWebSocketService.notifyRestDataFresh('plc-rest');
       } catch (e) {
         plcFailCountRef.current += 1;
         if (plcFailCountRef.current >= 3) setPlcFailed(true);
@@ -936,7 +938,7 @@ export const IndustrialHMIPrototype = () => {
       }
     };
 
-    const interval = setInterval(pollRestValues, 1000);
+    const interval = setInterval(pollRestValues, 5000); // 5s — prevents stacking when C# is slow
     pollRestValues(); // run immediately on mount / permission restore
     return () => clearInterval(interval);
   }, [canViewHmi]); // restart when HMI access is granted/revoked
