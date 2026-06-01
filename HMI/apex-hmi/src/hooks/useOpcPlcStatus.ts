@@ -47,6 +47,8 @@ export interface OpcPlcStatusResult {
 }
 
 const POLL_INTERVAL_MS = 10_000;
+// How many consecutive UNKNOWN polls before we treat a PLC as DISCONNECTED in the UI
+const UNKNOWN_AS_DISCONNECTED_AFTER = 2;
 
 export function useOpcPlcStatus(): OpcPlcStatusResult {
   const [result, setResult] = useState<OpcPlcStatusResult>({
@@ -61,6 +63,8 @@ export function useOpcPlcStatus(): OpcPlcStatusResult {
   });
 
   const mountedRef = useRef(true);
+  // Track consecutive UNKNOWN poll counts per PLC id
+  const unknownCountRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     mountedRef.current = true;
@@ -74,23 +78,44 @@ export function useOpcPlcStatus(): OpcPlcStatusResult {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!mountedRef.current) return;
-        setResult({
-          opc: data.opc ?? null,
-          plcs: (data.plcs ?? []).map((p: Partial<PlcStatus>) => ({
-            id: p.id ?? "",
+
+        const mappedPlcs = (data.plcs ?? []).map((p: Partial<PlcStatus>) => {
+          const id = p.id ?? "";
+          const rawConnected = !!p.connected;
+          const rawMode = p.mode ?? "UNKNOWN";
+          // Track consecutive UNKNOWN polls per PLC
+          if (!rawConnected && rawMode === 'UNKNOWN') {
+            unknownCountRef.current[id] = (unknownCountRef.current[id] ?? 0) + 1;
+          } else {
+            unknownCountRef.current[id] = 0;
+          }
+          // After N polls still UNKNOWN → treat as disconnected
+          const resolvedConnected = rawConnected
+            ? true
+            : (unknownCountRef.current[id] ?? 0) >= UNKNOWN_AS_DISCONNECTED_AFTER
+              ? false
+              : rawConnected;
+          return {
+            id,
             name: p.name ?? "",
             status: p.status ?? "",
-            connected: !!p.connected,
+            connected: resolvedConnected,
             protocol: p.protocol ?? "",
             ipAddress: p.ipAddress ?? "",
             lastUpdate: p.lastUpdate ?? "",
-            mode: p.mode ?? "UNKNOWN",
+            mode: resolvedConnected ? (p.mode ?? "UNKNOWN") : "DISCONNECTED",
             frozenForMs: p.frozenForMs ?? 0,
             lastValueChange: p.lastValueChange ?? "",
             alerts: p.alerts ?? [],
             isNoPlcSentinel: !!p.isNoPlcSentinel,
-          })),
-          anyPlcDisconnected: data.anyPlcDisconnected ?? false,
+          };
+        });
+        const resolvedAnyDisconnected = mappedPlcs.some((p: PlcStatus) => !p.isNoPlcSentinel && !p.connected);
+
+        setResult({
+          opc: data.opc ?? null,
+          plcs: mappedPlcs,
+          anyPlcDisconnected: resolvedAnyDisconnected,
           anyPlcFrozen: data.anyPlcFrozen ?? false,
           noPlcConfigured: data.noPlcConfigured ?? false,
           backendReachable: data.backendReachable ?? true,

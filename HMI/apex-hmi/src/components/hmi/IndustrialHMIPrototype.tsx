@@ -375,6 +375,7 @@ export const IndustrialHMIPrototype = () => {
   const plcFailCountRef = useRef(0);
   const [opcFailed,  setOpcFailed]  = useState(false);
   const [plcFailed,  setPlcFailed]  = useState(false);
+  const [showPlcDetails, setShowPlcDetails] = useState(false);
   const [usingRestFallback, setUsingRestFallback] = useState(false);
 
   // OPC/PLC connection state from backend health endpoint
@@ -1518,76 +1519,112 @@ export const IndustrialHMIPrototype = () => {
             {usingRestFallback && !opcFailed && (
               <span style={{ color: '#ffaa00', marginLeft: 4, fontSize: '10px' }}>| REST FALLBACK ACTIVE</span>
             )}
-            {/* OPC Server disconnected */}
-            {!opcPlcStatus.loading && opcPlcStatus.opc && !opcPlcStatus.opc.connected && (
-              <span style={{
-                color: '#ff2222',
-                marginLeft: 8,
-                fontWeight: 700,
-                fontSize: '11px',
-                padding: '2px 7px',
-                border: '1px solid #ff2222',
-                borderRadius: '3px',
-                backgroundColor: 'rgba(255,34,34,0.12)',
-                animation: 'pulse 1.5s infinite',
-              }}>
-                ⚠ OPC {opcPlcStatus.opc.status?.toUpperCase() || 'DISCONNECTED'}
-              </span>
-            )}
-            {/* PLC(s) disconnected */}
-            {!opcPlcStatus.loading && opcPlcStatus.anyPlcDisconnected && opcPlcStatus.plcs
-              .filter(p => !p.connected && !p.isNoPlcSentinel)
-              .map(p => (
-                <span key={p.id} style={{
-                  color: '#ff7700',
-                  marginLeft: 8,
-                  fontWeight: 700,
-                  fontSize: '11px',
-                  padding: '2px 7px',
-                  border: '1px solid #ff7700',
-                  borderRadius: '3px',
-                  backgroundColor: 'rgba(255,119,0,0.12)',
-                  animation: 'pulse 1.5s infinite',
-                }}>
-                  ⚠ PLC {p.name || p.id}: NOT CONNECTED
+            {/* ── Single unified PLC/OPC status indicator ── */}
+            {(() => {
+              if (opcPlcStatus.loading) return null;
+              const plcs = opcPlcStatus.plcs.filter(p => !p.isNoPlcSentinel);
+              const opcOk = !opcPlcStatus.opc || opcPlcStatus.opc.connected;
+
+              // Classify each PLC — works for any number of PLCs automatically
+              const classifyPlc = (p: typeof plcs[number]) => {
+                if (!p.connected) return 'offline' as const;
+                if (p.mode === 'FROZEN') return 'frozen' as const;
+                if (p.mode === 'RUN') return 'online' as const;
+                return 'connecting' as const;
+              };
+              const classified = plcs.map(classifyPlc);
+              const total = plcs.length;
+              const onlineCount  = classified.filter(s => s === 'online').length;
+              const offlineCount = classified.filter(s => s === 'offline').length;
+              const frozenCount  = classified.filter(s => s === 'frozen').length;
+
+              // Derive overall pill appearance
+              let color = '#00c851'; let label = 'PLC: ALL ONLINE'; let blink = false;
+              if (opcPlcStatus.noPlcConfigured) {
+                color = '#ff2222'; label = 'NO PLC CONFIGURED'; blink = true;
+              } else if (total === 0) {
+                color = '#888'; label = 'PLC: —';
+              } else if (!opcOk && offlineCount === total) {
+                color = '#ff2222'; label = 'OPC + ALL PLC OFFLINE'; blink = true;
+              } else if (offlineCount === total) {
+                color = '#ff2222'; label = 'ALL PLC OFFLINE'; blink = true;
+              } else if (!opcOk) {
+                color = '#ff4444'; label = 'OPC OFFLINE'; blink = true;
+              } else if (offlineCount > 0 || frozenCount > 0) {
+                // MIXED — some online some not → orange + blink
+                color = '#ff8800'; label = `PLC: ${onlineCount}/${total} ONLINE`; blink = true;
+              } else if (frozenCount === total) {
+                color = '#ffaa00'; label = 'PLC: FROZEN'; blink = true;
+              }
+
+              return (
+                <span
+                  style={{
+                    position: 'relative',
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    marginLeft: 8, padding: '2px 8px',
+                    border: `1px solid ${color}`, borderRadius: 3,
+                    backgroundColor: `${color}22`,
+                    color, fontWeight: 700, fontSize: '11px',
+                    cursor: 'pointer',
+                    animation: blink ? 'pulse 1.5s infinite' : undefined,
+                    userSelect: 'none',
+                  }}
+                  title="Click to see PLC details"
+                  onClick={() => setShowPlcDetails(v => !v)}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: color, boxShadow: `0 0 5px ${color}` }} />
+                  {label} ▾
+                  {showPlcDetails && (
+                    <div
+                      onClick={e => e.stopPropagation()}
+                      style={{
+                        position: 'absolute', top: '110%', left: 0, zIndex: 9999,
+                        backgroundColor: '#1a1f2e', border: '1px solid #334',
+                        borderRadius: 6, padding: '10px 14px', minWidth: 300,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                        color: '#ccc', fontSize: '11px',
+                      }}
+                    >
+                      {/* OPC row */}
+                      {opcPlcStatus.opc && (() => {
+                        const ok = opcPlcStatus.opc.connected;
+                        const c = ok ? '#00c851' : '#ff2222';
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid #334' }}>
+                            <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: c, flexShrink: 0 }} />
+                            <span style={{ color: c, fontWeight: 700 }}>OPC SERVER</span>
+                            <span style={{ marginLeft: 'auto', color: c }}>{opcPlcStatus.opc.status?.toUpperCase() || (ok ? 'CONNECTED' : 'DISCONNECTED')}</span>
+                          </div>
+                        );
+                      })()}
+                      {/* Per-PLC rows — automatic for any number of PLCs, no code change needed */}
+                      {opcPlcStatus.noPlcConfigured && <div style={{ color: '#ff2222', fontWeight: 700 }}>⛔ No PLC configured</div>}
+                      {plcs.map((p, i) => {
+                        const cls = classifyPlc(p);
+                        const c = cls === 'online' ? '#00c851' : cls === 'offline' ? '#ff4444' : cls === 'frozen' ? '#ffaa00' : '#ffcc00';
+                        const st = cls === 'online' ? 'ONLINE / RUN'
+                          : cls === 'offline' ? 'OFFLINE'
+                          : cls === 'frozen' ? `FROZEN ${Math.round(p.frozenForMs/1000)}s`
+                          : 'CONNECTING...';
+                        return (
+                          <div key={p.id || i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                            <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: c, flexShrink: 0, boxShadow: cls !== 'online' ? `0 0 4px ${c}` : undefined }} />
+                            <span style={{ fontWeight: 700, color: '#eee' }}>{p.name || p.id}</span>
+                            <span style={{ marginLeft: 'auto', color: c, fontWeight: 700 }}>{st}</span>
+                          </div>
+                        );
+                      })}
+                      {plcs.length > 0 && (
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #334', color: '#666', fontSize: '10px' }}>
+                          {opcPlcStatus.lastUpdated ? `Updated: ${opcPlcStatus.lastUpdated.toLocaleTimeString()}` : 'Polling...'}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </span>
-              ))
-            }
-            {/* Gap 8: PLC(s) connected but in PROGRAM mode / frozen (no value changes >30s) */}
-            {!opcPlcStatus.loading && opcPlcStatus.plcs
-              .filter(p => p.connected && p.mode === 'FROZEN')
-              .map(p => (
-                <span key={`frozen-${p.id}`} style={{
-                  color: '#ffaa00',
-                  marginLeft: 8,
-                  fontWeight: 700,
-                  fontSize: '11px',
-                  padding: '2px 7px',
-                  border: '1px solid #ffaa00',
-                  borderRadius: '3px',
-                  backgroundColor: 'rgba(255,170,0,0.15)',
-                  animation: 'pulse 1.5s infinite',
-                }} title={`No tag value has changed for ${Math.round(p.frozenForMs/1000)}s — controller likely in PROGRAM mode or scan halted`}>
-                  ⚠ PLC {p.name || p.id}: PROGRAM/FROZEN ({Math.round(p.frozenForMs/1000)}s)
-                </span>
-              ))
-            }
-            {/* Gap 7: No PLC configured at all */}
-            {!opcPlcStatus.loading && opcPlcStatus.noPlcConfigured && (
-              <span style={{
-                color: '#ff2222',
-                marginLeft: 8,
-                fontWeight: 700,
-                fontSize: '11px',
-                padding: '2px 7px',
-                border: '1px solid #ff2222',
-                borderRadius: '3px',
-                backgroundColor: 'rgba(255,34,34,0.18)',
-                animation: 'pulse 1.5s infinite',
-              }}>
-                ⛔ NO PLC CONFIGURED — contact engineering
-              </span>
-            )}
+              );
+            })()}
           </div>
           {/* Per-source OPC/PLC badges — only shown for sources that have enabled tags in DB.
               DISCONNECTED = tags are configured for this source but no fresh data is arriving.
@@ -1639,74 +1676,6 @@ export const IndustrialHMIPrototype = () => {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap', overflow: 'visible' }}>
           <span>{currentTime.toLocaleString('en-US', { hour12: false, month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-          {/* PLC MODE — real per-PLC mode from C# backend (Gap 8).
-              RUN = green, FROZEN = orange (controller in PROGRAM mode / scan halted),
-              DISCONNECTED = red, UNKNOWN = grey. */}
-          {(() => {
-            const plcs = opcPlcStatus.plcs.filter(p => !p.isNoPlcSentinel);
-            if (opcPlcStatus.loading || plcs.length === 0) {
-              return <span style={{ color: '#888' }}>MODE: —</span>;
-            }
-
-            // Classify one PLC → display attributes + a groupKey used to decide
-            // whether all PLCs can collapse into a single common badge.
-            const classify = (p: typeof plcs[number]) => {
-              let color = '#888';
-              let label = 'UNKNOWN';
-              let groupKey = p.mode || 'UNKNOWN';
-              let title = `${p.name || p.id}: mode unknown`;
-              if (!p.connected) {
-                color = '#ff2222'; label = 'DISCONNECTED'; groupKey = 'DISCONNECTED';
-                title = `${p.name || p.id}: ${p.lastError || 'disconnected'}`;
-              } else if (p.mode === 'FROZEN') {
-                color = '#ffaa00'; label = `FROZEN ${Math.round(p.frozenForMs/1000)}s`; groupKey = 'FROZEN';
-                title = `${p.name || p.id}: no tag value has changed for ${Math.round(p.frozenForMs/1000)}s — controller likely in PROGRAM mode or scan halted`;
-              } else if (p.mode === 'RUN') {
-                color = '#00c851'; label = 'RUN'; groupKey = 'RUN';
-                title = `${p.name || p.id}: RUN (values changing)`;
-              } else {
-                label = p.mode || 'UNKNOWN'; groupKey = p.mode || 'UNKNOWN';
-              }
-              return { color, label, groupKey, title };
-            };
-
-            const badge = (key: string, color: string, title: string, text: string) => (
-              <span key={key} title={title} style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                color,
-                fontWeight: 700,
-                fontSize: '11px',
-                padding: '2px 7px',
-                border: `1px solid ${color}`,
-                borderRadius: '3px',
-                backgroundColor: `${color}1f`,
-              }}>
-                <span style={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  backgroundColor: color, boxShadow: `0 0 5px ${color}`,
-                }} />
-                {text}
-              </span>
-            );
-
-            const classified = plcs.map(p => ({ p, ...classify(p) }));
-
-            // All PLCs in the same mode → ONE common badge (no PLC name).
-            const allSameMode = classified.every(c => c.groupKey === classified[0].groupKey);
-            if (allSameMode) {
-              const c = classified[0];
-              const names = plcs.map(p => p.name || p.id).join(', ');
-              const commonTitle = `All PLCs (${names}): ${c.groupKey}`;
-              return badge('mode-common', c.color, commonTitle, `MODE: ${c.label}`);
-            }
-
-            // Modes differ → per-PLC badges, each labelled with PLC name/ID.
-            return classified.map(c =>
-              badge(`mode-${c.p.id}`, c.color, c.title, `${c.p.name || c.p.id}: ${c.label}`)
-            );
-          })()}
 
           {/* Admin Link */}
           {user?.isAdmin && (

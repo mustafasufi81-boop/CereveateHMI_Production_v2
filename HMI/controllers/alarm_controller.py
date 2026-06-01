@@ -2007,7 +2007,7 @@ def get_alarm_history():
                 -- ACK audit record shares the same event_id which would otherwise cause
                 -- the RAISED row to show ACTIVE_ACK incorrectly.
                 CASE
-                    WHEN he.event_type IN ('ALARM','ALARM_RAISED_H') THEN he.alarm_state
+                    WHEN he.event_type = 'ALARM' OR he.event_type LIKE 'ALARM_RAISED%%' THEN he.alarm_state
                     WHEN sup_at.performed_by IS NOT NULL THEN 'SUPPRESSED'
                     WHEN clr_at.action_timestamp IS NOT NULL THEN 'CLEARED'
                     WHEN ack_at.action_timestamp IS NOT NULL AND he.alarm_state NOT IN ('RTN_UNACK','CLEARED')
@@ -2018,6 +2018,12 @@ def get_alarm_history():
                 he.alarm_priority,
                 he.alarm_level,
                 he.message,
+                -- Original alarm raise time: for raise events use own time; for ACK/CLEAR use the originating raise event's time
+                CASE
+                    WHEN he.event_type = 'ALARM' OR he.event_type LIKE 'ALARM_RAISED%%'
+                    THEN he."time"
+                    ELSE orig_event.raise_time
+                END                          AS original_raise_time,
                 -- Use values from this event, but fall back to the originating alarm event
                 COALESCE(he.alarm_setpoint, orig_event.alarm_setpoint) AS alarm_setpoint,
                 COALESCE(he.alarm_actual_value, orig_event.alarm_actual_value) AS alarm_actual_value,
@@ -2049,15 +2055,21 @@ def get_alarm_history():
             LEFT JOIN LATERAL (
                 SELECT performed_by, action_timestamp, action_notes
                 FROM historian_raw.alarm_audit_trail
-                WHERE event_id = he.event_id
-                  AND action_type = 'ACKNOWLEDGED'
+                WHERE action_type = 'ACKNOWLEDGED'
+                  AND (
+                      event_id = he.event_id
+                      OR metadata->>'alarm_key' = (he.tag_id || ':' || he.alarm_level)
+                  )
                 ORDER BY action_timestamp ASC LIMIT 1
             ) ack_at ON TRUE
             LEFT JOIN LATERAL (
                 SELECT performed_by, action_timestamp, action_reason, action_notes
                 FROM historian_raw.alarm_audit_trail
-                WHERE event_id = he.event_id
-                  AND action_type = 'CLEARED'
+                WHERE action_type = 'CLEARED'
+                  AND (
+                      event_id = he.event_id
+                      OR metadata->>'alarm_key' = (he.tag_id || ':' || he.alarm_level)
+                  )
                 ORDER BY action_timestamp ASC LIMIT 1
             ) clr_at ON TRUE
             -- Active suppression check (not yet unsuppressed and not yet expired)
@@ -2082,11 +2094,14 @@ def get_alarm_history():
             ) sup_at ON TRUE
                         -- Lateral subquery to locate the originating alarm event for this tag/level
                         LEFT JOIN LATERAL (
-                                SELECT he2.alarm_setpoint, he2.alarm_actual_value, he2.event_id
+                                SELECT he2.alarm_setpoint, he2.alarm_actual_value, he2.event_id,
+                                       he2."time" AS raise_time
                                 FROM historian_raw.historian_events he2
                                 WHERE he2.tag_id = he.tag_id
+                                    AND he2.alarm_level = he.alarm_level
+                                    AND he2.event_id != he.event_id
                                     AND he2."time" <= he."time"
-                                    AND (he2.event_type = 'ALARM' OR he2.alarm_state IN ('ACTIVE_UNACK','ACTIVE_ACK'))
+                                    AND (he2.event_type = 'ALARM' OR he2.event_type LIKE 'ALARM_RAISED%%')
                                 ORDER BY he2."time" DESC
                                 LIMIT 1
                         ) orig_event ON TRUE
@@ -2127,6 +2142,7 @@ def get_alarm_history():
                 'event_id':           r['event_id'],
                 'tag_id':             r['tag_id'],
                 'raised_at':          _fmt(r['raised_at']),
+                'original_raise_time': _fmt(r.get('original_raise_time')),
                 'event_type':         r['event_type'],
                 'alarm_state':        r['alarm_state'],
                 'alarm_priority':     r['alarm_priority'],

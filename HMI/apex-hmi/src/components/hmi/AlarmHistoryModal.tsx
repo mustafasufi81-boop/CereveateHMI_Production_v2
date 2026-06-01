@@ -22,6 +22,7 @@ interface AlarmRecord {
   event_id: number;
   tag_id: string;
   raised_at: string;
+  original_raise_time?: string | null;
   event_type: string;
   alarm_state: string;
   alarm_priority: number;
@@ -417,7 +418,7 @@ export default function AlarmHistoryModal({ onClose }: Props) {
                         isSuppressed && "opacity-60 border-purple-900/40")}
                       onClick={() => setExpanded(isExp ? null : r.event_id)}
                     >
-                      {/* Raised At */}
+                      {/* Time — each event's own timestamp (raise time for RAISE, ACK time for ACK, etc.) */}
                       <td className="px-3 py-2 whitespace-nowrap text-slate-300 font-mono">{fmt(r.raised_at)}</td>
                       {/* Tag */}
                       <td className="px-3 py-2 whitespace-nowrap font-semibold text-amber-300">{r.tag_id}</td>
@@ -499,7 +500,7 @@ export default function AlarmHistoryModal({ onClose }: Props) {
                                 <span className="text-red-400 font-bold text-xs uppercase">Alarm Raised</span>
                               </div>
                               <div className="space-y-1 text-xs">
-                                <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="text-slate-200 font-mono">{fmt(r.raised_at)}</span></div>
+                                <div className="flex justify-between"><span className="text-slate-500">Time</span><span className="text-slate-200 font-mono">{fmt(r.original_raise_time ?? r.raised_at)}</span></div>
                                 <div className="flex justify-between"><span className="text-slate-500">Tag</span><span className="text-amber-300 font-semibold">{r.tag_id}</span></div>
                                 <div className="flex justify-between"><span className="text-slate-500">Level</span><span className={cn("px-1 rounded border text-[10px] font-bold", levelColor(r.alarm_level))}>{r.alarm_level || "—"}</span></div>
                                 <div className="flex justify-between"><span className="text-slate-500">Trigger Value</span><span className="text-red-300 font-bold font-mono">{r.alarm_actual_value?.toFixed(4) ?? "—"}</span></div>
