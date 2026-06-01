@@ -240,8 +240,32 @@ public class PlcHistorianIngestService : BackgroundService
                     continue;
                 }
 
-                // FIX 8: Derive quality char from actual PLC communication state
-                var qualityChar = tagValue.Quality switch
+                // M2 / R5 — GARBAGE CANNOT REACH DB.
+                // Compute the numeric once (nullable: null = null/unparseable/NaN/Inf).
+                var quality = tagValue.Quality;
+                double? numeric = ConvertToDouble(tagValue.Value);
+                double? valueToWrite;
+
+                if (quality != PlcTagQuality.Good)
+                {
+                    // Non-Good reading: record the bad-quality EVENT but never the value.
+                    // value_num = NULL keeps aggregates/trends clean (NULL renders as a gap).
+                    valueToWrite = null;
+                }
+                else if (numeric is null)
+                {
+                    // Good per link state, but value is unrepresentable (parse-fail / NaN / Inf).
+                    // Defence-in-depth: never write garbage as Good — NULL + demote to Bad.
+                    valueToWrite = null;
+                    quality = PlcTagQuality.Bad;
+                }
+                else
+                {
+                    valueToWrite = numeric;
+                }
+
+                // Derive quality char from the (possibly demoted) communication state
+                var qualityChar = quality switch
                 {
                     PlcTagQuality.Good          => "G",
                     PlcTagQuality.Bad           => "B",
@@ -255,14 +279,14 @@ public class PlcHistorianIngestService : BackgroundService
                 {
                     TagId     = tagValue.TagName,
                     Timestamp = tagValue.Timestamp,
-                    Value     = ConvertToDouble(tagValue.Value),
+                    Value     = valueToWrite,
                     Quality   = qualityChar
                 });
 
                 _lastWriteState[key] = new TagWriteState
                 {
                     LastWriteTime = timestamp,
-                    LastValue     = ConvertToDouble(tagValue.Value)
+                    LastValue     = valueToWrite ?? 0.0
                 };
             }
             catch (Exception ex)
@@ -328,11 +352,17 @@ public class PlcHistorianIngestService : BackgroundService
         return FilterReason.Write;
     }
 
-    private double ConvertToDouble(object? value)
+    /// <summary>
+    /// R5 / D11 / D4 — convert pool value to a finite double, or NULL.
+    /// Returns null (NOT 0.0) for: null input, unparseable string, or any non-finite
+    /// (NaN / +Inf / -Inf) result. The caller writes NULL into value_num so garbage
+    /// never pollutes historian aggregates or trends.
+    /// </summary>
+    private double? ConvertToDouble(object? value)
     {
-        if (value == null) return 0.0;
+        if (value == null) return null;
 
-        return value switch
+        double? result = value switch
         {
             double d => d,
             float f => f,
@@ -341,9 +371,15 @@ public class PlcHistorianIngestService : BackgroundService
             short s => s,
             byte b => b,
             bool bl => bl ? 1.0 : 0.0,
-            string str => double.TryParse(str, out var d) ? d : 0.0,
-            _ => 0.0
+            string str => double.TryParse(str, out var d) ? d : (double?)null,
+            _ => null
         };
+
+        // Reject non-finite values — they must never enter value_num.
+        if (result is double r && (double.IsNaN(r) || double.IsInfinity(r)))
+            return null;
+
+        return result;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -386,7 +422,10 @@ public class PlcHistorianIngestService : BackgroundService
                 await writer.StartRowAsync(ct);
                 await writer.WriteAsync(record.Timestamp,  NpgsqlDbType.TimestampTz, ct); // time
                 await writer.WriteAsync(record.TagId,      NpgsqlDbType.Text, ct);        // tag_id
-                await writer.WriteAsync(record.Value,      NpgsqlDbType.Double, ct);      // value_num
+                if (record.Value is double v)                                              // value_num
+                    await writer.WriteAsync(v,             NpgsqlDbType.Double, ct);
+                else
+                    await writer.WriteNullAsync(ct);       // R5: non-Good / NaN / Inf ⇒ NULL
                 await writer.WriteNullAsync(ct);                                            // value_text
                 await writer.WriteNullAsync(ct);                                            // value_bool
                 await writer.WriteAsync(record.Quality,    NpgsqlDbType.Char, ct);        // quality (G/B/U)
@@ -442,7 +481,7 @@ public class PlcHistorianIngestService : BackgroundService
                 await using var cmd = new NpgsqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("t",  record.Timestamp);
                 cmd.Parameters.AddWithValue("id", record.TagId);
-                cmd.Parameters.AddWithValue("v",  record.Value);
+                cmd.Parameters.AddWithValue("v",  (object?)record.Value ?? DBNull.Value); // R5: NULL when no finite value
                 cmd.Parameters.AddWithValue("q",  record.Quality);
                 await cmd.ExecuteNonQueryAsync(ct);
                 _totalFallbackInserts++;
@@ -477,6 +516,6 @@ internal class PlcTimeseriesRecord
 {
     public string TagId    { get; set; } = "";
     public DateTime Timestamp { get; set; }
-    public double Value    { get; set; }
+    public double? Value   { get; set; }       // nullable — NULL = non-Good / NaN / Inf (R5)
     public string Quality  { get; set; } = "G"; // G=Good, B=Bad, U=Uncertain
 }

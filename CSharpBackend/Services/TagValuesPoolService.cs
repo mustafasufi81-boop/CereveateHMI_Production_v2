@@ -110,6 +110,18 @@ public class TagValueCacheEntry
     public required string Quality { get; set; }
     public DateTime Timestamp { get; set; }      // OPC read timestamp (same for all tags in batch)
     public DateTime UpdatedAt { get; set; }      // When this entry was cached
-    /// <summary>True when no update has been received for more than 30 seconds.</summary>
-    public bool IsStale => (DateTime.UtcNow - UpdatedAt).TotalSeconds > 30;
+    
+    /// <summary>
+    /// True when:
+    /// 1. Quality is Bad/Stale/Uncertain (immediate staleness) OR
+    /// 2. No update received for more than 30 seconds (time-based staleness)
+    /// 
+    /// FIX: Previously only checked time — caused ghost alarm values during PLC disconnect.
+    /// Now checks quality FIRST so bad-quality values don't get evaluated as alarms.
+    /// </summary>
+    public bool IsStale =>
+        !IsGoodQuality(Quality) || (DateTime.UtcNow - UpdatedAt).TotalSeconds > 30;
+    
+    private static bool IsGoodQuality(string quality) =>
+        quality is "Good" or "G" or "GOOD";
 }

@@ -390,6 +390,20 @@ public sealed class AlarmStateManager
 
             if (!IsCircuitClosed()) return false;
 
+            // ── ISA-18.2 NON-LATCHING AUTO-CLEAR ──────────────────────────────────────
+            // If the alarm was ALREADY acknowledged (ActiveAck) and the value has now
+            // returned to normal (and survived the off-delay), clear it directly — the
+            // operator already acknowledged this occurrence, so no SECOND ACK is required.
+            //
+            // Unacknowledged alarms (ActiveUnack) still go to RTN_UNACK below, so the
+            // operator must acknowledge at least once that they saw the alarm before it
+            // can fully clear.
+            if (state.State is AlarmState4.ActiveAck)
+            {
+                return await AutoClearOnRtnAsync(state, alarmKey, tagId, level, value, timestamp, ct);
+            }
+            // ──────────────────────────────────────────────────────────────────────────
+
             long rtnEventId = 0;
             long rtnTransSeq = 0;
             try
@@ -476,6 +490,110 @@ public sealed class AlarmStateManager
             return true;
         }
         finally { sem.Release(); }
+    }
+
+    // =========================================================
+    // NON-LATCHING AUTO-CLEAR (ISA-18.2)
+    //   ACTIVE_ACK + value returned to normal → CLEARED (no 2nd ACK)
+    // =========================================================
+
+    /// <summary>
+    /// Auto-clears an already-acknowledged alarm whose value has returned to normal.
+    /// Mirrors ClearAsync's DB pattern (append ALARM_CLEARED event + delete alarm_active
+    /// row) but is triggered automatically by the evaluator rather than by an operator.
+    /// MUST be called with the per-key lock held and the circuit closed.
+    /// </summary>
+    private async Task<bool> AutoClearOnRtnAsync(
+        AlarmRuntimeState state,
+        string alarmKey,
+        string tagId,
+        AlarmLevel level,
+        double value,
+        DateTimeOffset timestamp,
+        CancellationToken ct)
+    {
+        long clearEventId = 0;
+        long clearTransSeq = 0;
+        try
+        {
+            await using var conn = new NpgsqlConnection(_dbConfig.Database.ConnectionString);
+            await conn.OpenAsync(ct);
+
+            // INSERT CLEARED journal entry — append-only
+            const string insertClear = """
+                INSERT INTO historian_raw.historian_events
+                    (time, tag_id, event_type, severity, message,
+                     alarm_state, alarm_priority,
+                     alarm_level, occurrence_id, instance_seq, transition_seq,
+                     alarm_actual_value, alarm_setpoint,
+                     cleared_by, cleared_at)
+                VALUES
+                    (@time, @tagId, 'ALARM_CLEARED', @severity, @message,
+                     'CLEARED', @priority,
+                     @level, @occId, @seq,
+                     nextval('historian_raw.alarm_transition_seq'),
+                     @value, @setpoint,
+                     @clearedBy, @clearedAt)
+                RETURNING event_id, transition_seq
+                """;
+            await using var cmdC = new NpgsqlCommand(insertClear, conn) { CommandTimeout = _dbConfig.Database.CommandTimeout };
+            cmdC.Parameters.AddWithValue("@time",      timestamp);
+            cmdC.Parameters.AddWithValue("@tagId",     tagId);
+            cmdC.Parameters.AddWithValue("@severity",  state.Priority);   // ISA-18.2: keep occurrence priority
+            cmdC.Parameters.AddWithValue("@message",   $"{tagId} auto-cleared (returned to normal from {level}, value={value:G6}) — acknowledged, non-latching");
+            cmdC.Parameters.AddWithValue("@priority",  state.Priority);   // ISA-18.2: keep occurrence priority
+            cmdC.Parameters.AddWithValue("@level",     level.ToString());
+            cmdC.Parameters.AddWithValue("@occId",     state.OccurrenceId);
+            cmdC.Parameters.AddWithValue("@seq",       state.InstanceSeq);
+            cmdC.Parameters.AddWithValue("@value",     value);
+            cmdC.Parameters.AddWithValue("@setpoint",  (object?)state.SetpointValue ?? DBNull.Value);
+            cmdC.Parameters.AddWithValue("@clearedBy", "SYSTEM (non-latching)");
+            cmdC.Parameters.AddWithValue("@clearedAt", timestamp);
+            await using (var rdr = await cmdC.ExecuteReaderAsync(ct))
+            {
+                if (!await rdr.ReadAsync(ct)) throw new InvalidOperationException("AUTO-CLEAR INSERT returned no row");
+                clearEventId  = rdr.GetInt64(0);
+                clearTransSeq = rdr.GetInt64(1);
+            }
+
+            // DELETE from alarm_active — lifecycle complete
+            const string deleteActive = "DELETE FROM historian_raw.alarm_active WHERE alarm_key = @key";
+            await using var cmdD = new NpgsqlCommand(deleteActive, conn) { CommandTimeout = _dbConfig.Database.CommandTimeout };
+            cmdD.Parameters.AddWithValue("@key", alarmKey);
+            await cmdD.ExecuteNonQueryAsync(ct);
+
+            ResetCircuitBreaker();
+        }
+        catch (Exception ex)
+        {
+            RecordDbFailure(ex, $"AutoClearOnRtnAsync {alarmKey}");
+            return false;
+        }
+
+        // Update memory AFTER successful DB write
+        var capturedState = state;
+        _states.TryRemove(alarmKey, out _);
+        Interlocked.Increment(ref _totalRtn);
+        Interlocked.Increment(ref _totalCleared);
+        _logger.LogInformation("ALARM AUTO-CLEARED (non-latching) key={Key} val={Val}", alarmKey, value);
+
+        EmitTransition(new AlarmTransitionEvent
+        {
+            AlarmKey      = alarmKey,
+            TagId         = capturedState.TagId,
+            Level         = capturedState.Level,
+            ToState       = AlarmState4.None,
+            OccurrenceId  = capturedState.OccurrenceId,
+            InstanceSeq   = capturedState.InstanceSeq,
+            EventId       = clearEventId,
+            TransitionSeq = clearTransSeq,
+            Timestamp     = timestamp,
+            Value         = value,
+            SetpointValue = capturedState.SetpointValue,
+            Operator      = "SYSTEM (non-latching)",
+        });
+
+        return true;
     }
 
     // =========================================================
@@ -974,27 +1092,32 @@ public sealed class AlarmStateManager
     private (double value, bool found) GetFromPlcPool(string tagId)
     {
         if (_plcTagPool == null) return (0.0, false);
-        var entries = _plcTagPool.GetTagValues(new[] { tagId }, plcId: null);
+
+        // R6 CONNECTION GATE (consistency with EvaluateCycleAsync): use the
+        // connection-gated read so a tag whose owning PLC is currently disconnected
+        // is OMITTED entirely → found=false → caller's SAFE-DEFAULT branch fires.
+        // This closes the gap where MarkPlcDisconnected sets Quality=Uncertain (not
+        // Bad), which the quality check below would otherwise NOT catch for 60 s.
+        var entries = _plcTagPool.GetTagValuesFromConnectedPlcs(new[] { tagId }, plcId: null);
         var entry   = entries.Count > 0 ? entries[0] : null;
 
-        // Not in pool at all → offline
+        // Not in pool / owning PLC disconnected → offline
         if (entry == null) return (0.0, false);
 
-        // Hard-bad quality means PLC/hardware reported an error → treat as offline
+        // Hard-bad / disconnect qualities → treat as offline so the caller's
+        // safe-default logic decides. Uncertain/Stale are included because
+        // MarkPlcDisconnected freezes the last value under Quality=Uncertain.
         if (entry.Quality == PlcTagQuality.Bad
             || entry.Quality == PlcTagQuality.CommError
-            || entry.Quality == PlcTagQuality.NotConfigured)
+            || entry.Quality == PlcTagQuality.NotConfigured
+            || entry.Quality == PlcTagQuality.Uncertain
+            || entry.ComputedQuality == PlcTagQuality.Stale)
             return (0.0, false);
 
-        // Very-stale (>60 s): pool hasn't been refreshed — treat as offline so the
-        // safe-default logic in the caller can decide (currently: allow clear with warning).
-        // A 60 s window is generous for a 1 s PLC poll cycle; if we reach it the PLC
-        // data pipeline has a real problem and we cannot rely on any cached value.
-        if (entry.age_ms > 60_000) return (0.0, false);
-
-        // Good OR Stale-but-recent (10 s – 60 s): use the last known value.
-        // This handles the common case where the pool update is momentarily slow
-        // yet the last cached value is still meaningful for a violating-check.
+        // Reaching here means: owning PLC connected AND quality Good AND age ≤ 10 s.
+        // (Anything staler/disconnected was already returned as offline above, so the
+        // ACK/CLEAR safety gate decides on a fresh value only — consistent with the
+        // evaluator's IsStale gate.)
         var valStr = entry.Value?.ToString() ?? "";
         return double.TryParse(valStr,
             System.Globalization.NumberStyles.Float,

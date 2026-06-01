@@ -710,7 +710,7 @@ export const IndustrialHMIPrototype = () => {
           if (tagId && value !== undefined) {
             updates[tagId] = {
               value: value,
-              quality: tag.quality,
+              quality: tag.computedQuality ?? tag.quality,
               timestamp: tag.time || new Date().toISOString(),
               unit: tag.eng_unit || '',
               topic: data.topic
@@ -872,7 +872,9 @@ export const IndustrialHMIPrototype = () => {
         if (tagId && value !== undefined && value !== null) {
           updates[tagId] = {
             value,
-            quality:   tag.quality   || 'Good',
+            // Prefer computedQuality — it captures age-based Stale (Good tag not
+            // refreshed > 10 s) that raw quality does not. Falls back to quality.
+            quality:   tag.computedQuality || tag.quality || 'Good',
             timestamp: tag.timestamp || tag.time || tag.cachedAt || new Date().toISOString(),
             unit:      tag.eng_unit  || tag.unit || '',
             source,
@@ -1345,6 +1347,28 @@ export const IndustrialHMIPrototype = () => {
     }
   };
 
+  // Phase 4 / R9 — classify a backend quality string into an operator-visible
+  // degradation flag. Single source of truth so every value render (single-tag,
+  // badge, multi-tag grid) shows the SAME condition the backend reported.
+  //   Stale / Uncertain      → amber  ⚠ STALE     (link slow / frozen last value)
+  //   Bad / CommError        → red    ⚠ BAD       (garbage / NaN / denormal / hw error)
+  //   NotConnected           → red    ⚠ NO LINK   (owning PLC disconnected)
+  //   TYPE_* / NotConfigured → red    ⚠ TYPE      (data_type mismatch/unconfigured)
+  //   Good / G / GOOD / ''   → not degraded
+  const getQualityFlag = (quality?: string): { degraded: boolean; label: string; color: string } => {
+    const q = (quality || '').toUpperCase();
+    if (q === '' || q === 'GOOD' || q === 'G')
+      return { degraded: false, label: '', color: '' };
+    if (q === 'STALE' || q === 'UNCERTAIN')
+      return { degraded: true, label: '⚠ STALE', color: '#f59e0b' };
+    if (q === 'NOTCONNECTED' || q === 'NOT_CONNECTED')
+      return { degraded: true, label: '⚠ NO LINK', color: '#ef4444' };
+    if (q.startsWith('TYPE') || q === 'NOTCONFIGURED' || q === 'NOT_CONFIGURED')
+      return { degraded: true, label: '⚠ TYPE', color: '#ef4444' };
+    // Bad, B, COMMERROR, COMM_ERROR, or any other non-Good value → hard bad
+    return { degraded: true, label: '⚠ BAD', color: '#ef4444' };
+  };
+
   const renderAssetTree = (assets: Asset[], level = 0) => {
     return assets.map(asset => {
       const isExpanded = expandedNodes.has(asset.id);
@@ -1441,7 +1465,7 @@ export const IndustrialHMIPrototype = () => {
       
       {/* SYSTEM STATUS BAR */}
       <div style={{
-        height: '40px',
+        height: '72px',
         backgroundColor: ISA_COLORS.panel,
         borderBottom: `2px solid ${ISA_COLORS.border}`,
         display: 'flex',
@@ -1452,6 +1476,11 @@ export const IndustrialHMIPrototype = () => {
         fontFamily: 'Consolas, monospace'
       }}>
         <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+          {/* BALCO / Vedanta logo — far left */}
+          <div style={{ display: 'flex', alignItems: 'center', padding: '4px 14px', borderRadius: '6px', backgroundColor: '#fff', border: '1px solid #ccc', boxShadow: '0 1px 4px rgba(0,0,0,0.3)' }}>
+            <img src="/Logo_Company.png" alt="BALCO" style={{ height: '60px', width: 'auto' }} />
+          </div>
+          <div style={{ width: '1px', height: '30px', backgroundColor: '#333' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{
               width: '12px', height: '12px', borderRadius: '50%',
@@ -1581,33 +1610,9 @@ export const IndustrialHMIPrototype = () => {
           {sourceStatuses.length === 0 && opcConnectionState !== 'Unknown' && (
             <span style={{ fontSize: '10px', color: '#888' }}>NO SOURCES CONFIGURED</span>
           )}
-          <div style={{ display: 'flex', gap: '16px', marginLeft: '24px' }}>
-            <span style={{ color: ISA_COLORS.alarmP1, fontWeight: 700 }}>P1: {systemStatus.alarmCount.p1}</span>
-            <span style={{ color: ISA_COLORS.alarmP2, fontWeight: 700 }}>P2: {systemStatus.alarmCount.p2}</span>
-            <span style={{ color: ISA_COLORS.alarmP3, fontWeight: 700 }}>P3: {systemStatus.alarmCount.p3}</span>
-          </div>
+
           
-          {/* Selected Tags Counter */}
-          {selectedTags.length > 0 && (
-            <>
-              <div style={{ width: '1px', height: '24px', backgroundColor: ISA_COLORS.border, marginLeft: '16px' }} />
-              <div style={{
-                padding: '6px 12px',
-                backgroundColor: 'rgba(0, 200, 81, 0.2)',
-                border: '1px solid ' + ISA_COLORS.statusOnline,
-                color: ISA_COLORS.statusOnline,
-                fontSize: '11px',
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}>
-                <Activity style={{ width: '14px', height: '14px' }} />
-                SELECTED: {selectedTags.length}/{MAX_SELECTED_TAGS}
-              </div>
-            </>
-          )}
+
           
           {/* DEBUG BUTTON - ISA-101 Compliance Check */}
           <div style={{ width: '1px', height: '24px', backgroundColor: ISA_COLORS.border, marginLeft: '16px', display: 'none' }} />
@@ -1632,7 +1637,7 @@ export const IndustrialHMIPrototype = () => {
           </button>
 
         </div>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'nowrap', overflow: 'visible' }}>
           <span>{currentTime.toLocaleString('en-US', { hour12: false, month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           {/* PLC MODE — real per-PLC mode from C# backend (Gap 8).
               RUN = green, FROZEN = orange (controller in PROGRAM mode / scan halted),
@@ -1642,43 +1647,65 @@ export const IndustrialHMIPrototype = () => {
             if (opcPlcStatus.loading || plcs.length === 0) {
               return <span style={{ color: '#888' }}>MODE: —</span>;
             }
-            return plcs.map(p => {
+
+            // Classify one PLC → display attributes + a groupKey used to decide
+            // whether all PLCs can collapse into a single common badge.
+            const classify = (p: typeof plcs[number]) => {
               let color = '#888';
               let label = 'UNKNOWN';
+              let groupKey = p.mode || 'UNKNOWN';
               let title = `${p.name || p.id}: mode unknown`;
               if (!p.connected) {
-                color = '#ff2222'; label = 'DISCONNECTED';
+                color = '#ff2222'; label = 'DISCONNECTED'; groupKey = 'DISCONNECTED';
                 title = `${p.name || p.id}: ${p.lastError || 'disconnected'}`;
               } else if (p.mode === 'FROZEN') {
-                color = '#ffaa00'; label = `FROZEN ${Math.round(p.frozenForMs/1000)}s`;
+                color = '#ffaa00'; label = `FROZEN ${Math.round(p.frozenForMs/1000)}s`; groupKey = 'FROZEN';
                 title = `${p.name || p.id}: no tag value has changed for ${Math.round(p.frozenForMs/1000)}s — controller likely in PROGRAM mode or scan halted`;
               } else if (p.mode === 'RUN') {
-                color = '#00c851'; label = 'RUN';
+                color = '#00c851'; label = 'RUN'; groupKey = 'RUN';
                 title = `${p.name || p.id}: RUN (values changing)`;
               } else {
-                label = p.mode || 'UNKNOWN';
+                label = p.mode || 'UNKNOWN'; groupKey = p.mode || 'UNKNOWN';
               }
-              return (
-                <span key={`mode-${p.id}`} title={title} style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  color,
-                  fontWeight: 700,
-                  fontSize: '11px',
-                  padding: '2px 7px',
-                  border: `1px solid ${color}`,
-                  borderRadius: '3px',
-                  backgroundColor: `${color}1f`,
-                }}>
-                  <span style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    backgroundColor: color, boxShadow: `0 0 5px ${color}`,
-                  }} />
-                  MODE: {label}
-                </span>
-              );
-            });
+              return { color, label, groupKey, title };
+            };
+
+            const badge = (key: string, color: string, title: string, text: string) => (
+              <span key={key} title={title} style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                color,
+                fontWeight: 700,
+                fontSize: '11px',
+                padding: '2px 7px',
+                border: `1px solid ${color}`,
+                borderRadius: '3px',
+                backgroundColor: `${color}1f`,
+              }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  backgroundColor: color, boxShadow: `0 0 5px ${color}`,
+                }} />
+                {text}
+              </span>
+            );
+
+            const classified = plcs.map(p => ({ p, ...classify(p) }));
+
+            // All PLCs in the same mode → ONE common badge (no PLC name).
+            const allSameMode = classified.every(c => c.groupKey === classified[0].groupKey);
+            if (allSameMode) {
+              const c = classified[0];
+              const names = plcs.map(p => p.name || p.id).join(', ');
+              const commonTitle = `All PLCs (${names}): ${c.groupKey}`;
+              return badge('mode-common', c.color, commonTitle, `MODE: ${c.label}`);
+            }
+
+            // Modes differ → per-PLC badges, each labelled with PLC name/ID.
+            return classified.map(c =>
+              badge(`mode-${c.p.id}`, c.color, c.title, `${c.p.name || c.p.id}: ${c.label}`)
+            );
           })()}
 
           {/* Admin Link */}
@@ -1714,6 +1741,13 @@ export const IndustrialHMIPrototype = () => {
           {/* User Header Component */}
           <div style={{ transform: 'scale(0.9)' }}>
             <UserHeader />
+          </div>
+
+          {/* Cereveate Tech logo — far right */}
+          <div style={{ width: '1px', height: '36px', backgroundColor: '#444', margin: '0 6px' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 10px', borderRadius: '4px', backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid #3a2e00' }}>
+            <img src="/newlogos.jpg" alt="Cereveate Tech" style={{ height: '32px', width: 'auto', borderRadius: '4px', backgroundColor: '#fff', padding: '2px 4px' }} />
+            <span style={{ fontSize: '9px', color: '#f59e0b', letterSpacing: '1px', textTransform: 'uppercase', fontFamily: 'Arial, sans-serif', fontWeight: 700, whiteSpace: 'nowrap' }}>CEREVEATE TECH</span>
           </div>
         </div>
       </div>
@@ -1924,27 +1958,21 @@ export const IndustrialHMIPrototype = () => {
                         const liveValue = liveTagValues[selectedTags[0].id];
                         const displayValue = liveValue?.value ?? selectedTags[0].value ?? 0;
                         const _n = typeof displayValue === 'number' ? displayValue : parseFloat(displayValue);
-                        const isStale = liveValue && (
-                          liveValue.quality === 'Stale' || liveValue.quality === 'STALE' ||
-                          liveValue.quality === 'Uncertain' || liveValue.quality === 'UNCERTAIN'
-                        );
+                        const flag = getQualityFlag(liveValue?.quality);
                         return (
-                          <span style={{ color: isStale ? '#6b7280' : undefined, opacity: isStale ? 0.6 : 1 }}>
+                          <span style={{ color: flag.degraded ? '#6b7280' : undefined, opacity: flag.degraded ? 0.6 : 1 }}>
                             {!isNaN(_n) ? _n.toFixed(3) : displayValue}
                           </span>
                         );
                       })()}
                     </div>
-                    {/* Gap 2: STALE badge for single-tag display */}
+                    {/* Gap 2 + Phase 4: degraded-quality badge for single-tag display */}
                     {(() => {
                       const liveValue = liveTagValues[selectedTags[0].id];
-                      const isStale = liveValue && (
-                        liveValue.quality === 'Stale' || liveValue.quality === 'STALE' ||
-                        liveValue.quality === 'Uncertain' || liveValue.quality === 'UNCERTAIN'
-                      );
-                      return isStale ? (
-                        <div style={{ fontSize: '11px', color: '#f59e0b', backgroundColor: '#78350f44', border: '1px solid #f59e0b', borderRadius: '4px', padding: '2px 6px', marginTop: '4px', letterSpacing: '1px', fontWeight: 600 }}>
-                          ⚠ STALE
+                      const flag = getQualityFlag(liveValue?.quality);
+                      return flag.degraded ? (
+                        <div style={{ fontSize: '11px', color: flag.color, backgroundColor: `${flag.color}22`, border: `1px solid ${flag.color}`, borderRadius: '4px', padding: '2px 6px', marginTop: '4px', letterSpacing: '1px', fontWeight: 600 }}>
+                          {flag.label}
                         </div>
                       ) : null;
                     })()}
@@ -2099,18 +2127,17 @@ export const IndustrialHMIPrototype = () => {
                             const cleanUnit = displayUnit.replace(/^\d+\s*/, '');
                             const ts = liveTagValues[tag.id]?.timestamp;
                             const tsLabel = ts ? new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
-                            // Gap 2: detect stale quality from the live value store
+                            // Gap 2 + Phase 4: detect degraded quality from the live value store
                             const liveQ = liveTagValues[tag.id]?.quality;
-                            const isStale = liveQ === 'Stale' || liveQ === 'STALE' ||
-                                            liveQ === 'Uncertain' || liveQ === 'UNCERTAIN';
+                            const flag = getQualityFlag(liveQ);
                             return (
                               <>
-                                <span style={{ color: isStale ? '#6b7280' : undefined, opacity: isStale ? 0.6 : 1 }}>
+                                <span style={{ color: flag.degraded ? '#6b7280' : undefined, opacity: flag.degraded ? 0.6 : 1 }}>
                                   {`${formattedValue} ${cleanUnit}`}
                                 </span>
-                                {isStale && (
-                                  <div style={{ fontSize: '8px', color: '#f59e0b', marginTop: '1px', letterSpacing: '0.5px', fontWeight: 600 }}>
-                                    ⚠ STALE
+                                {flag.degraded && (
+                                  <div style={{ fontSize: '8px', color: flag.color, marginTop: '1px', letterSpacing: '0.5px', fontWeight: 600 }}>
+                                    {flag.label}
                                   </div>
                                 )}
                                 {tsLabel && (

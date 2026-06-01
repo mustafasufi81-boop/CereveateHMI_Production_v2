@@ -346,12 +346,22 @@ public class PlcConfigLoaderService
 
     private string MapDataType(string dbDataType)
     {
+        // DB stores a controlled vocabulary (CHECK constraint allows only:
+        // double / integer / boolean / string). Translate each to its
+        // Rockwell-native CIP type so the driver decodes it correctly:
+        //   double  -> REAL  (32-bit IEEE-754 float, GetFloat32)
+        //   integer -> DINT  (32-bit signed int,      GetInt32)
+        //   boolean -> BOOL  (1-bit/byte,             GetUInt8)
+        //   string  -> STRING
         return dbDataType?.ToLowerInvariant() switch
         {
-            "boolean" or "bool" => "bool",
-            "int" or "integer" => "int32",
-            "double" or "float" => "float",
-            _ => "float"
+            "boolean" or "bool" => "BOOL",
+            "integer" or "int"  => "DINT",
+            "double" or "float" => "REAL",
+            "string"            => "STRING",
+            // Constraint guarantees one of the above; default to REAL as the
+            // safest analog default (matches the overwhelmingly common case).
+            _ => "REAL"
         };
     }
 

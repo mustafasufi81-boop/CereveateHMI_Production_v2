@@ -159,7 +159,10 @@ public sealed class AlarmEvaluationService : BackgroundService
         var missingIds = alarmTagIds.Where(id => !opcTagIds.Contains(id)).ToList();
         if (missingIds.Count > 0)
         {
-            var plcEntries = _plcTagPool.GetTagValues(missingIds, plcId: null);
+            // R6 — connection gate: pull PLC tags ONLY from PLCs that are currently
+            // connected. A disconnected PLC contributes zero tags here, independent of
+            // the per-tag quality/stale gate below (two independent gates, same verdict).
+            var plcEntries = _plcTagPool.GetTagValuesFromConnectedPlcs(missingIds, plcId: null);
             foreach (var plc in plcEntries)
             {
                 var tagName  = plc.TagName.Length > 0 ? plc.TagName : plc.Address;

@@ -365,7 +365,7 @@ def get_shift_report(current_user):
             source_id=source_id,
         )
         duration_ms = int((time.time() - started) * 1000)
-        _log_generation("SHIFT", ",".join(plants), ",".join(areas), report_date, current_user["user_id"], "JSON", len(data.get("rows", [])), duration_ms, "SUCCESS")
+        _log_generation("SHIFT", plant, area, report_date, current_user["user_id"], "JSON", len(data.get("rows", [])), duration_ms, "SUCCESS")
         response = make_response(jsonify(data), 200)
         return _add_no_cache_headers(response)
     except ValueError as ve:

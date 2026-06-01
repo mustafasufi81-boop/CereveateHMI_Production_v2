@@ -73,6 +73,19 @@ export const HMIDashboard = () => {
             <div className="px-6 py-2.5 flex items-center justify-between">
               {/* Left Section */}
               <div className="flex items-center gap-4">
+                {/* Company Logo: Cereveate Tech */}
+                <div className="flex items-center gap-2.5">
+                  <img
+                    src="/newlogos.jpg"
+                    alt="Cereveate Tech Logo"
+                    className="h-10 w-auto rounded bg-white/95 p-1 shadow-md"
+                  />
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-sm font-black text-white tracking-wide">Cereveate Tech</span>
+                    <span className="text-[10px] font-medium text-amber-400/80 uppercase tracking-wider">Industrial HMI</span>
+                  </div>
+                </div>
+                <div className="h-8 w-px bg-amber-500/40" />
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />

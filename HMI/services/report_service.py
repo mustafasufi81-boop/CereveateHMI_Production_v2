@@ -760,7 +760,10 @@ class ReportService:
         ws.merge_cells("C3:J3")
         ws["C3"].font = Font(bold=True, size=12)
         ws["C3"].alignment = Alignment(horizontal="center", vertical="center")
-        merge_date_end = get_column_letter(min(16, total_cols))
+        # PERIOD label starts at column K (11). For short date ranges total_cols
+        # can be < 11, which would build an invalid merge (e.g. K3:I3). Clamp the
+        # end column so it is never to the left of K.
+        merge_date_end = get_column_letter(max(11, min(16, total_cols)))
         ws.merge_cells(f"K3:{merge_date_end}3")
         ws["K3"].font = Font(bold=True, size=11)
         ws["K3"].alignment = Alignment(horizontal="center", vertical="center")

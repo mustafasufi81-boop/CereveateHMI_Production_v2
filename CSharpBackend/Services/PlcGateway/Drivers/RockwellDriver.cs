@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using PlcGateway.Interfaces;
+using PlcGateway.Validation;
 using libplctag;
 using libplctag.DataTypes;
 
@@ -61,6 +62,10 @@ public class RockwellDriver : IPlcDriver
     // the log with the same warning every second for every faulty I/O card.
     private readonly HashSet<string> _knownBadTags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _tagFailCounts = new(StringComparer.OrdinalIgnoreCase);
+    // Tags whose VALUE (not read status) was last judged insane by the validator.
+    // Separate from _knownBadTags so a sane-but-bad-valued tag is suppressed/recovered
+    // independently. Same log-once-then-silent contract.
+    private readonly HashSet<string> _knownBadValueTags = new(StringComparer.OrdinalIgnoreCase);
 
     // ── PLC-offline exponential backoff ──────────────────────────────────
     // When PLC is unreachable we stop the rapid connect-probe loop and
@@ -83,18 +88,11 @@ public class RockwellDriver : IPlcDriver
     {
         _config = config;
         
-        // FOR TESTING: Add hardcoded tags if none provided
+        // A driver never fabricates tags. An empty list means a configuration
+        // problem upstream — surface it as a warning, do NOT invent test data.
         if (!tags.Any())
         {
-            _logger.LogInformation("[ROCKWELL] No tags provided, using hardcoded test tags");
-            tags = new List<PlcTagDefinition>
-            {
-                new PlcTagDefinition { Address = "Cooling_FAN_SPEED", TagName = "Cooling_FAN_SPEED", DataType = "REAL" },
-                new PlcTagDefinition { Address = "High_Temp_Limit", TagName = "High_Temp_Limit", DataType = "REAL" },
-                new PlcTagDefinition { Address = "Tank_Level", TagName = "Tank_Level", DataType = "REAL" },
-                new PlcTagDefinition { Address = "Pump_Status", TagName = "Pump_Status", DataType = "BOOL" },
-                new PlcTagDefinition { Address = "Motor_RPM", TagName = "Motor_RPM", DataType = "REAL" }
-            };
+            _logger.LogWarning("[ROCKWELL] No tags provided for {PlcId} — driver will read nothing until tags are configured.", config.PlcId);
         }
 
         _tags = tags;        if (config.RockwellConfig == null)
@@ -192,6 +190,7 @@ public class RockwellDriver : IPlcDriver
                 _consecutiveFailures = 0;
                 _knownBadTags.Clear();   // fresh slate on reconnect
                 _tagFailCounts.Clear();
+                _knownBadValueTags.Clear();
                 _logger.LogInformation(
                     "[ROCKWELL] {PlcId}: Connected to {Ip} — {Count}/{Total} tag handles ready",
                     _config.PlcId, _config.IpAddress, createdCount, _tags.Count);
@@ -324,13 +323,32 @@ public class RockwellDriver : IPlcDriver
             if (value == null)
                 return null;   // bad tag — exclude from results, don't break loop
 
+            // Phase 1: judge the decoded value. The ACTUAL value is always carried
+            // through; only Quality reflects the verdict. Log-once-then-suppress so a
+            // stuck-bad sensor can't flood the log every scan (mirrors _knownBadTags).
+            var verdict = TagValueValidator.Validate(value, tag);
+            if (verdict.Ok)
+            {
+                if (_knownBadValueTags.Remove(tag.Address))
+                    _logger.LogInformation(
+                        "[ROCKWELL] {PlcId} tag '{Tag}' value RECOVERED to sane.",
+                        _config.PlcId, tag.TagName);
+            }
+            else if (_knownBadValueTags.Add(tag.Address))
+            {
+                _logger.LogWarning(
+                    "[ROCKWELL] {PlcId} tag '{Tag}' value flagged {Reason} (carried with Quality=Bad). " +
+                    "Further occurrences suppressed until it recovers.",
+                    _config.PlcId, tag.TagName, verdict.Reason);
+            }
+
             return new PlcTagValue
             {
                 Address   = tag.Address,
                 TagName   = tag.TagName,
                 Value     = value,
                 DataType  = tag.DataType,
-                Quality   = PlcQuality.Good,
+                Quality   = verdict.Quality,
                 Timestamp = timestamp,
                 PlcId     = _config.PlcId
             };
@@ -418,13 +436,32 @@ public class RockwellDriver : IPlcDriver
                 if (value == null)
                     continue;  // faulty tag — skip silently, already logged once
 
+                // Phase 1: same value-sanity verdict as ReadAllTagsAsync. The ACTUAL
+                // value is always carried; only Quality reflects the verdict. Shared
+                // log-once/recover via _knownBadValueTags (no flood, full visibility).
+                var verdict = TagValueValidator.Validate(value, tag);
+                if (verdict.Ok)
+                {
+                    if (_knownBadValueTags.Remove(tag.Address))
+                        _logger.LogInformation(
+                            "[ROCKWELL] {PlcId} tag '{Tag}' value RECOVERED to sane.",
+                            _config.PlcId, tag.TagName);
+                }
+                else if (_knownBadValueTags.Add(tag.Address))
+                {
+                    _logger.LogWarning(
+                        "[ROCKWELL] {PlcId} tag '{Tag}' value flagged {Reason} (carried with Quality=Bad). " +
+                        "Further occurrences suppressed until it recovers.",
+                        _config.PlcId, tag.TagName, verdict.Reason);
+                }
+
                 values.Add(new PlcTagValue
                 {
                     Address   = tag.Address,
                     TagName   = tag.TagName,
                     Value     = value,
                     DataType  = tag.DataType,
-                    Quality   = PlcQuality.Good,
+                    Quality   = verdict.Quality,
                     Timestamp = timestamp,
                     PlcId     = _config.PlcId
                 });
@@ -519,14 +556,18 @@ public class RockwellDriver : IPlcDriver
             // Get value based on data type
             return handle.DataType.ToUpperInvariant() switch
             {
-                "BOOL"  => libTag.GetUInt8(0) != 0,
-                "SINT"  => (sbyte)libTag.GetInt8(0),
-                "INT"   => libTag.GetInt16(0),
-                "DINT"  => libTag.GetInt32(0),
-                "LINT"  => libTag.GetInt64(0),
-                "REAL"  => libTag.GetFloat32(0),
-                "LREAL" => libTag.GetFloat64(0),
-                _       => libTag.GetFloat32(0)
+                "BOOL"            => libTag.GetUInt8(0) != 0,
+                "SINT"            => (sbyte)libTag.GetInt8(0),
+                "INT"             => libTag.GetInt16(0),
+                "DINT" or "INT32" => libTag.GetInt32(0),
+                "LINT"            => libTag.GetInt64(0),
+                "REAL" or "FLOAT" => libTag.GetFloat32(0),
+                "LREAL"           => libTag.GetFloat64(0),
+                // R4: a genuinely unknown/unconfigured type is NOT silently
+                // decoded as REAL. NOTE: config types double/float/integer/bool
+                // are mapped upstream to float/int32/bool by PlcConfigLoaderService,
+                // so those mapped names MUST appear as explicit cases above.
+                _                 => null
             };
         }
         catch (Exception ex)
@@ -679,7 +720,11 @@ public class RockwellDriver : IPlcDriver
             "BOOL" => 1,
             "SINT" or "BYTE" => 1,
             "INT" or "UINT" => 2,
-            "DINT" or "UDINT" or "REAL" => 4,
+            // NOTE: config types are mapped to float/int32/bool by
+            // PlcConfigLoaderService, so those mapped names MUST be explicit
+            // here too — not relying on the default (same robustness rule as
+            // the decode switch). REAL/FLOAT/DINT/INT32 are all 4 bytes.
+            "DINT" or "UDINT" or "INT32" or "REAL" or "FLOAT" => 4,
             "LINT" or "ULINT" or "LREAL" => 8,
             "STRING" => 88, // Rockwell STRING is 82 chars + header
             _ => 4

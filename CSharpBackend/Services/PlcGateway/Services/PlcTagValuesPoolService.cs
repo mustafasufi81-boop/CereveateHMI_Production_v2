@@ -43,6 +43,13 @@ public class PlcTagValuesPoolService
     // (reduced from 30 s to 8 s so the badge flips fast after mode change)
     private const long FrozenThresholdMs = 8_000;
 
+    // Minimum tag count required for the percentage-based freeze heuristic to be
+    // statistically meaningful. With fewer tags (e.g. a PLC carrying only a single
+    // setpoint), a static value would falsely flag the PLC as FROZEN even though
+    // the controller is healthy and in RUN. Below this threshold we trust the
+    // connection state instead of the heuristic.
+    private const int MinTagsForFreezeHeuristic = 7;
+
     public PlcTagValuesPoolService(ILogger<PlcTagValuesPoolService> logger)
     {
         _logger = logger;
@@ -80,7 +87,21 @@ public class PlcTagValuesPoolService
                     changedCount++;
             }
 
-            _cache[cacheKey] = tagValue with
+            // R6 / defence-in-depth — enforce the SINGLE pool invariant: "Good ⇒ finite".
+            // The driver (Phase 1 validator) is the sole validation authority; the pool does
+            // NOT re-run denormal/range/type checks. It only guards against a value that is
+            // flagged Good yet non-finite (NaN/Inf) — which can only mean a driver regression.
+            // On violation: demote to Bad + log (value is still carried truthfully — R2).
+            var entryToCache = tagValue;
+            if (entryToCache.Quality == PlcTagQuality.Good && !IsFinite(entryToCache.Value))
+            {
+                _logger.LogWarning(
+                    "[PLC POOL] Invariant violation — {Plc}::{Addr} flagged Good but non-finite ({Val}); demoting to Bad",
+                    plcId, tagValue.Address, tagValue.Value);
+                entryToCache = entryToCache with { Quality = PlcTagQuality.Bad };
+            }
+
+            _cache[cacheKey] = entryToCache with
             {
                 PlcId = plcId,
                 CacheKey = cacheKey,
@@ -110,12 +131,24 @@ public class PlcTagValuesPoolService
         // ── Choose authoritative mode ───────────────────────────────────────
         // Priority 1: actual CIP mode read from the driver (non-null, non-UNKNOWN)
         // Priority 2: heuristic — FROZEN if no significant value change for >8 s, else RUN
+        //             Skipped when the tag count is too small for the percentage rule
+        //             to be statistically meaningful (avoids false FROZEN on PLCs that
+        //             only host a handful of static setpoints).
         string mode;
         if (!string.IsNullOrEmpty(plcMode) && plcMode != "UNKNOWN")
         {
             // Real mode from the PLC; always trust it.
             // Still update frozenForMs so the badge can show how long it's been in this mode.
             mode = plcMode;
+        }
+        else if (tagValues.Count < MinTagsForFreezeHeuristic)
+        {
+            // Not enough tags for the heuristic to be reliable — if we're reading
+            // values at all, the PLC is alive. Report RUN and zero the freeze timer.
+            mode = "RUN";
+            frozenForMs = 0L;
+            _plcLastValueChange[plcId] = DateTime.UtcNow;
+            lastChange = _plcLastValueChange[plcId];
         }
         else
         {
@@ -265,6 +298,48 @@ public class PlcTagValuesPoolService
 
         return results;
     }
+
+    /// <summary>
+    /// R6 — CONNECTION-GATED read for alarm/live evaluation.
+    /// Identical matching to GetTagValues, but OMITS any tag whose owning PLC is
+    /// currently NotConnected (pool IsConnected=false). This is an authoritative
+    /// gate, independent of and in addition to the per-tag quality gate: two gates,
+    /// same verdict. A physically-down PLC therefore contributes ZERO tags to the
+    /// alarm engine, regardless of any stale value still sitting in the cache.
+    /// </summary>
+    public List<PlcTagValueCacheEntry> GetTagValuesFromConnectedPlcs(
+        IEnumerable<string> tagNamesOrAddresses, string? plcId = null)
+    {
+        var results = new List<PlcTagValueCacheEntry>();
+        var lookupSet = new HashSet<string>(tagNamesOrAddresses, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in _cache.Values)
+        {
+            if (plcId != null && entry.PlcId != plcId) continue;
+
+            if (!lookupSet.Contains(entry.TagName) && !lookupSet.Contains(entry.Address))
+                continue;
+
+            // R6 connection gate: skip tags whose owning PLC is not connected.
+            if (!_connectionStatus.TryGetValue(entry.PlcId, out var status) || !status.IsConnected)
+                continue;
+
+            results.Add(entry);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finiteness check for the pool's "Good ⇒ finite" invariant guard.
+    /// Only floating types can be non-finite; all other types are finite by definition.
+    /// </summary>
+    private static bool IsFinite(object? value) => value switch
+    {
+        double d => !(double.IsNaN(d) || double.IsInfinity(d)),
+        float f  => !(float.IsNaN(f)  || float.IsInfinity(f)),
+        _        => true
+    };
 
     /// <summary>
     /// Get tag values by PLC ID and addresses

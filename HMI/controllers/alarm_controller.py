@@ -2003,7 +2003,11 @@ def get_alarm_history():
                 he.event_type,
                 -- Effective state: derive from audit trail because C# writes audit but
                 -- does NOT update historian_events.alarm_state after creation.
+                -- For RAISED events always preserve the raw state (ACTIVE_UNACK) — the
+                -- ACK audit record shares the same event_id which would otherwise cause
+                -- the RAISED row to show ACTIVE_ACK incorrectly.
                 CASE
+                    WHEN he.event_type IN ('ALARM','ALARM_RAISED_H') THEN he.alarm_state
                     WHEN sup_at.performed_by IS NOT NULL THEN 'SUPPRESSED'
                     WHEN clr_at.action_timestamp IS NOT NULL THEN 'CLEARED'
                     WHEN ack_at.action_timestamp IS NOT NULL AND he.alarm_state NOT IN ('RTN_UNACK','CLEARED')

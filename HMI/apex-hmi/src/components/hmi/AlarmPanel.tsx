@@ -165,6 +165,8 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
 
   const [tagValues, setTagValues] = useState<Record<string, number | null>>({});
+  // quality per tag from API: "Good" | "Stale" | "Uncertain" | "Bad" | "UNKNOWN"
+  const [tagQuality, setTagQuality] = useState<Record<string, string>>({});
 
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -564,7 +566,7 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
 
       const [activeRes, suppRes, tagsRes] = await Promise.all([
 
-        fetch('/api/alarms/active', { headers: snapshotHeaders }),
+        fetch('/api/alarms/active?limit=200', { headers: snapshotHeaders }),
 
         fetch('/api/alarms/suppressed', { headers: snapshotHeaders }),
 
@@ -584,25 +586,36 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
 
       if (suppData.success) setSuppressedAlarms(suppData.suppressed || []);
 
-      // Update live tag values map (tag_id â†’ current numeric value)
+      // Update live tag values map (tag_id â†’ current numeric value).
+
+      // /api/tags/latest is the single authoritative PV source: the Flask route
+
+      // overlays live OPC + PLC pool values on top of the DB latest values, so
+
+      // PLC alarm tags (AY1101, TY11xx, VYAN…) already carry their current PV
+
+      // here — no separate /api/plc/values fetch is needed.
 
       try {
 
         const tagsData = await tagsRes.json();
 
-        if (tagsData.tags && typeof tagsData.tags === 'object') {
+        const liveMap: Record<string, number | null> = {};
+        const qualityMap: Record<string, string> = {};
 
-          const liveMap: Record<string, number | null> = {};
+        if (tagsData.tags && typeof tagsData.tags === 'object') {
 
           for (const [tagId, tagInfo] of Object.entries(tagsData.tags as Record<string, any>)) {
 
             liveMap[tagId] = typeof tagInfo?.value === 'number' ? tagInfo.value : null;
+            if (tagInfo?.quality) qualityMap[tagId] = String(tagInfo.quality);
 
           }
 
-          setTagValues(liveMap);
-
         }
+
+        setTagValues(liveMap);
+        setTagQuality(qualityMap);
 
       } catch { /* tags fetch failure is non-critical */ }
 
@@ -786,11 +799,17 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
 
       setAlarms(prevAlarms => {
 
-        const tagId     = newAlarm.tag_id;
-
-        const existing  = prevAlarms.findIndex(a => a.tag_id === tagId && !isTemporaryMqttAlarm(a));
-
-
+        const tagId = newAlarm.tag_id;
+        const incomingLevel = newAlarm.alarm_level ?? alarmData.level ?? '';
+        const alarmKey = `${tagId}:${incomingLevel}`;
+        
+        // Match by alarm_key (tag_id + level), NOT just tag_id
+        // This prevents High alarm events from hitting HighHigh cards (and vice versa)
+        const existing = prevAlarms.findIndex(a => {
+          if (isTemporaryMqttAlarm(a)) return false;
+          const cardKey = (a as any).alarm_key ?? `${a.tag_id}:${a.alarm_level ?? ''}`;
+          return cardKey === alarmKey;
+        });
 
         if (existing >= 0) {
 
@@ -1582,9 +1601,11 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
 
   const isValueStillViolating = (alarm: Alarm): { violating: boolean; liveValue: number; setpoint: number } => {
 
-    // Use live pool value if available; fall back to the value stored on the alarm record
+    // Use live pool value if available; fall back to the value stored on the alarm record.
 
-    // (covers PLC tags that are NOT in the OPC /api/tags/latest pool)
+    // /api/tags/latest overlays live OPC + PLC pool values keyed by tag_id, so PLC
+
+    // alarm tags carry their current PV here too.
 
     const liveValue = tagValues[alarm.tag_id ?? ''] ?? alarm.alarm_actual_value ?? null;
 
@@ -3458,15 +3479,18 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
 
                                 {/* ACK â€” Viewer cannot operate */}
 
-                                {canOperateAlarms && (
-
+                                {canOperateAlarms && (() => {
+                                  // API sets stale=true when PLC pool is down or data age > 60s
+                                  const _ackQ = alarm.tag_id ? (tagQuality[alarm.tag_id] ?? 'Good') : 'Good';
+                                  const isTagBadQuality = _ackQ !== 'Good';
+                                  return (
                                   <button
 
                                     onClick={(e) => handleAcknowledge(alarm, e)}
 
-                                    disabled={isPending(alarm.id) || !isDatabaseBackedAlarm(alarm)}
+                                    disabled={isPending(alarm.id) || !isDatabaseBackedAlarm(alarm) || isTagBadQuality}
 
-                                    title={!isDatabaseBackedAlarm(alarm) ? "Waiting for DB save before acknowledge" : alarm.alarm_state === 'RTN_UNACK' ? "ACK this alarm â€” value returned to normal, ACK will CLEAR it" : "Acknowledge alarm"}
+                                    title={isTagBadQuality ? `Tag quality is ${_ackQ} — ACK blocked until tag returns to Good.` : !isDatabaseBackedAlarm(alarm) ? "Waiting for DB save before acknowledge" : alarm.alarm_state === 'RTN_UNACK' ? "ACK this alarm — value returned to normal, ACK will CLEAR it" : "Acknowledge alarm"}
 
                                     className={cn(
 
@@ -3497,28 +3521,32 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
                                     )}
 
                                   </button>
-
-                                )}
+                                  );
+                                })()}
 
                                 {/* SUPP â€” Viewer cannot operate */}
 
-                                {canOperateAlarms && isDatabaseBackedAlarm(alarm) && (
+                                {canOperateAlarms && isDatabaseBackedAlarm(alarm) && (() => {
+                                  const _suppQ = alarm.tag_id ? (tagQuality[alarm.tag_id] ?? 'Good') : 'Good';
+                                  const isSuppBlocked = _suppQ !== 'Good';
+                                  return (
+                                    <button
 
-                                  <button
+                                      onClick={(e) => { e.stopPropagation(); setSuppressModalAlarm(alarm); }}
 
-                                    onClick={(e) => { e.stopPropagation(); setSuppressModalAlarm(alarm); }}
+                                      disabled={isSuppBlocked}
 
-                                    title="Suppress this alarm (hide from active panel)"
+                                      title={isSuppBlocked ? `Tag quality is ${_suppQ} — SUPP blocked until tag returns to Good.` : "Suppress this alarm (hide from active panel)"}
 
-                                    className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap bg-purple-900/70 hover:bg-purple-800 text-purple-200 border border-purple-600 hover:border-purple-400 transition-all duration-200"
+                                      className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold whitespace-nowrap bg-purple-900/70 hover:bg-purple-800 text-purple-200 border border-purple-600 hover:border-purple-400 transition-all duration-200 ${isSuppBlocked ? 'opacity-50 cursor-not-allowed' : ''}`}
 
-                                  >
+                                    >
 
-                                    SUPP
+                                      SUPP
 
-                                  </button>
-
-                                )}
+                                    </button>
+                                  );
+                                })()}
 
                               </div>
 
@@ -3554,7 +3582,8 @@ export const AlarmPanel = ({ className }: AlarmPanelProps) => {
 
                                   onClick={(e) => handleClear(alarm.id, e)}
 
-                                  disabled={isPending(alarm.id)}
+                                  disabled={isPending(alarm.id) || (alarm.tag_id ? (tagQuality[alarm.tag_id] ?? 'Good') !== 'Good' : false)}
+                                  title={alarm.tag_id && (tagQuality[alarm.tag_id] ?? 'Good') !== 'Good' ? `Tag quality is ${tagQuality[alarm.tag_id]} — CLEAR blocked until tag returns to Good.` : "Clear this alarm"}
 
                                   className={cn(
 
