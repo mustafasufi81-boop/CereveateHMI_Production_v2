@@ -32,8 +32,10 @@ obj/
 *.dump
 *.bak
 
-# Secrets / config with credentials (keep config.json templates but not live ones with passwords)
-# config.json is kept intentionally - contains DB config needed for deployment
+# Secrets / Encryption keys — NEVER commit these
+HMI/machine.key
+HMI/config.json
+_test_config_encryption/
 
 # OS
 .DS_Store

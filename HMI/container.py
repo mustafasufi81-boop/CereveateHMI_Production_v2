@@ -77,12 +77,13 @@ class Container:
         
     def _load_config(self):
         try:
-            config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
-            logger.info(f"[CONFIG] Loading config from: {config_path}")
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            from _open_config import load_config
+            logger.info("[CONFIG] Loading config from encrypted config.enc")
+            return load_config()
+        except SystemExit:
+            raise
         except Exception as e:
-            logger.error(f"Failed to load config.json: {e}")
+            logger.error(f"Failed to load config: {e}")
             raise
 
 # Create a singleton instance
