@@ -1,0 +1,170 @@
+# Config Encryption — System Documentation & Migration Guide
+
+**Project:** Cereveate HMI Production  
+**Date:** June 2, 2026  
+**Status:** LIVE — Applied to production system  
+
+---
+
+## What Was Done and Why
+
+`config.json` used to sit on disk in plain text, exposing the database password to anyone with file system access or git repo access:
+
+```json
+"database": {
+    "password": "cereveate@222"   <- was visible to anyone
+}
+```
+
+`config.json` has been **permanently deleted** from the repo and replaced with `config.enc` — an AES-256-GCM encrypted binary. The app automatically decrypts it at startup using `machine.key`.
+
+---
+
+## Encryption Details
+
+| Property | Value |
+|----------|-------|
+| Algorithm | AES-256-GCM (authenticated encryption) |
+| Key derivation | PBKDF2-HMAC-SHA256, 600,000 iterations |
+| Salt | 16 random bytes (unique per seal) |
+| Nonce | 12 random bytes (unique per seal) |
+| Integrity | GCM auth tag — any file tampering is detected and rejected |
+| Key size | 32 bytes stored as 64 hex characters in `machine.key` |
+
+---
+
+## Files on This System
+
+| File | Location | In Git? | Description |
+|------|----------|---------|-------------|
+| `config.enc` | `HMI/config.enc` | YES | Encrypted config — safe to commit |
+| `machine.key` | `HMI/machine.key` | NO | Master decryption key — NEVER commit |
+| `config.json` | — | NO | Deleted — must not exist on disk |
+| `_open_config.py` | `HMI/_open_config.py` | YES | Decrypt module used by the app at startup |
+
+---
+
+## Master Key
+
+```
+745b97171055d19fa497b9cd76ee3a98cd8cabae879079bfc33090463302524d
+```
+
+Store this key in a password manager (e.g. Bitwarden, 1Password).
+If this key is lost, `config.enc` CANNOT be decrypted and the app will not start.
+You would need to re-seal a new `config.enc` from a fresh `config.json`.
+
+---
+
+## How the App Uses It
+
+At startup, `HMI/container.py` calls `_open_config.py` which:
+
+1. Reads `HMI/machine.key` from disk
+2. Decrypts `HMI/config.enc` using AES-256-GCM
+3. Returns the config as a Python dict (cached in memory — disk read only once)
+4. If anything fails (missing key, wrong key, tampered file) — prints fatal error and exits immediately
+
+---
+
+## Migrating to a New Computer — Step by Step
+
+### Step 1 — Clone the Repo
+```
+git clone https://github.com/mustafasufi81-boop/CereveateHMI_Production_v2.git
+```
+This gives you: all source code, `config.enc`, `_open_config.py`.
+It does NOT give you `machine.key` — that is intentional.
+
+---
+
+### Step 2 — Create machine.key Manually
+
+On the new machine, create the file `HMI\machine.key` with the master key.
+
+Run in PowerShell:
+```
+Set-Content -Path "HMI\machine.key" -Value "745b97171055d19fa497b9cd76ee3a98cd8cabae879079bfc33090463302524d" -NoNewline -Encoding ASCII
+```
+
+Or create manually in a text editor:
+- File path: `HMI\machine.key`
+- Contents: the 64-character hex key above
+- No spaces, no newline at end of file
+
+---
+
+### Step 3 — Install Python Dependencies
+```
+cd HMI
+.venv\Scripts\pip.exe install -r requirements.txt
+```
+The `cryptography` package is required — it is listed in requirements.txt.
+
+---
+
+### Step 4 — Verify Decryption Works
+```
+cd HMI
+.venv\Scripts\python.exe -c "from _open_config import load_config; cfg = load_config(); print('OK:', list(cfg.keys()))"
+```
+Expected output:
+```
+[CONFIG] config.enc decrypted successfully.
+OK: ['csharp_backend', 'hmi_server', 'database', 'mqtt', 'performance', 'sampling', 'security', 'license']
+```
+
+---
+
+### Step 5 — Start the App Normally
+```
+cd HMI
+.venv\Scripts\python.exe app.py
+```
+
+---
+
+## If You Need to Change the Config (e.g. New DB Password)
+
+1. Create a fresh `config.json` with the updated values in `HMI/`
+2. Run the re-seal command:
+```
+cd HMI
+.venv\Scripts\python.exe -c "from _open_config import seal_config; seal_config('config.json', 'machine.key', 'config.enc'); print('Done')"
+```
+3. Delete `config.json` again
+4. Commit and push the new `config.enc`
+5. Replace `config.enc` on all other servers
+
+---
+
+## What Happens If machine.key Is Missing or Wrong
+
+The app refuses to start and prints:
+
+```
+==================================================================
+  FATAL - Cannot start: config decryption error
+==================================================================
+  machine.key not found.
+  Expected location: ...\HMI\machine.key
+  Place your machine.key file in the HMI directory and restart.
+==================================================================
+```
+
+---
+
+## Files That Must NEVER Be Committed to Git
+
+Both are blocked in `.gitignore`:
+
+```
+HMI/config.json
+HMI/machine.key
+```
+
+Verify they are ignored at any time:
+```
+git check-ignore -v HMI/machine.key
+git check-ignore -v HMI/config.json
+```
